@@ -858,29 +858,25 @@ function computeLandingStats() {
   const w = S.win;
   if (!w || !S.yr) return;
   const y = S.date.y;
-  $('#stHours').dataset.target = Math.round(S.yr.litHours);
+  $('#stHours').textContent = Math.round(S.yr.litHours).toLocaleString('ru-RU');
   $('#stFloor').textContent = `${w.floor}-го`;
   const tall = S.yr.top.filter((t) => S.model.buildings[t.i].h > 150);
   const towers = tall.reduce((a, t) => a + t.share, 0);
-  $('#stTowers').dataset.target = Math.round(towers * 100);
+  $('#stTowers').textContent = Math.round(towers * 100);
   const near = Math.min(...tall.map((t) => {
     const b = S.model.buildings[t.i];
     return Math.hypot(b.cx - w.x, b.cy - w.y);
   }));
   if (isFinite(near)) $('#stTowersNear').textContent = ` — ближайшая всего в ${Math.round(near / 10) * 10} метрах`;
   const dec = S.an.day(w, y, 11, 22, S.tz, 2);
-  $('#stWinter').dataset.target = Math.round(dec.lit);
+  $('#stWinter').textContent = Math.round(dec.lit);
   S.landingYr = S.yr;
   drawHeat($('#landingHeat'), S.landingYr, dayOfYear(y, S.date.m, S.date.d));
   const bs = S.model.buildings;
   const tallest = Math.max(...bs.map((b) => b.h));
   const known = bs.filter((b) => b.src !== 'guess').length;
-  $('#isoStats').innerHTML = [
-    [bs.length, plural(bs.length, ['здание', 'здания', 'зданий'])],
-    [`${Math.round(tallest)} м`, 'самое высокое'],
-    [`${Math.round((known / bs.length) * 100)}%`, 'с высотой из OSM'],
-    [S.model.trees.length / 3, 'деревьев'],
-  ].map(([v, t]) => `<li><b>${v}</b>${t}</li>`).join('');
+  $('#stepFact').textContent = `В демо-квартале на Пресне ${bs.length} ${plural(bs.length, ['здание', 'здания', 'зданий'])}, `
+    + `самое высокое — ${Math.round(tallest)} м, у ${Math.round((known / bs.length) * 100)}% высота известна из OSM.`;
 }
 
 // Самое солнечное время дня — с него удобно начинать просмотр
@@ -895,57 +891,7 @@ function sunnyMinute() {
   return 12 * 60;
 }
 
-function buildIsoCity() {
-  const svg = $('#isoCity');
-  const s = 15, cx = 262, cy = 150;
-  const iso = (x, y, z) => [cx + (x - y) * s * 0.866, cy + (x + y) * s * 0.5 - z * s];
-  const pts = (a) => a.map((p) => p.join(',')).join(' ');
-  let seed = 11;
-  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const blocks = [];
-  for (let gx = 0; gx < 6; gx++) {
-    for (let gy = 0; gy < 6; gy++) {
-      const tower = gx === 1 && gy === 1;
-      const hl = gx === 3 && gy === 3;
-      if (!tower && !hl && rnd() < 0.18) continue;
-      const h = tower ? 9 : hl ? 2.4 : 0.8 + rnd() * (gx + gy < 4 ? 4.5 : 2.6);
-      blocks.push({ x: gx * 2.2, y: gy * 2.2, w: 1.6, d: 1.6, h, hl });
-    }
-  }
-  blocks.sort((a, b) => a.x + a.y - (b.x + b.y));
-  let html = `<path d="M${iso(-1.2, -1.2, 0)} L${iso(13.6, -1.2, 0)} L${iso(13.6, 13.6, 0)} L${iso(-1.2, 13.6, 0)} Z" fill="#ece4d7" stroke="rgba(29,23,18,.08)"/>`;
-  // тени на земле — солнце спереди, тени уходят вглубь
-  blocks.forEach(({ x, y, w, d, h }) => {
-    const ex = -h * 0.28, ey = -h * 0.62;
-    const sh = [iso(x + w, y + d, 0), iso(x + w, y, 0), iso(x + w + ex, y + ey, 0), iso(x + ex, y + ey, 0), iso(x + ex, y + d + ey, 0), iso(x, y + d, 0)];
-    html += `<polygon class="iso-sh" points="${pts(sh)}" fill="rgba(70,52,34,.09)"/>`;
-  });
-  blocks.forEach((b, k) => {
-    const { x, y, w, d, h } = b;
-    const top = [iso(x, y, h), iso(x + w, y, h), iso(x + w, y + d, h), iso(x, y + d, h)];
-    const left = [iso(x, y + d, 0), iso(x + w, y + d, 0), iso(x + w, y + d, h), iso(x, y + d, h)];
-    const right = [iso(x + w, y, 0), iso(x + w, y + d, 0), iso(x + w, y + d, h), iso(x + w, y, h)];
-    const c = b.hl ? ['#f6c58c', '#e9a35d', '#f3b56f'] : ['#fbf8f3', '#e4dccf', '#efe8dd'];
-    html += `<g class="iso-b" style="transition-delay:${(k * 35)}ms">
-      <polygon points="${pts(left)}" fill="${c[1]}" stroke="rgba(29,23,18,.1)" stroke-width=".6"/>
-      <polygon points="${pts(right)}" fill="${c[2]}" stroke="rgba(29,23,18,.1)" stroke-width=".6"/>
-      <polygon points="${pts(top)}" fill="${c[0]}" stroke="rgba(29,23,18,.1)" stroke-width=".6"/>
-    </g>`;
-  });
-  svg.innerHTML = html;
-}
-
 function initReveal() {
-  const io = new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      if (!e.isIntersecting) continue;
-      e.target.classList.add('in');
-      io.unobserve(e.target);
-      e.target.querySelectorAll?.('[data-count]').forEach(countUp);
-    }
-  }, { threshold: 0.18, rootMargin: '0px 0px -6% 0px' });
-  $$('[data-reveal]').forEach((el) => io.observe(el));
-
   const heroIO = new IntersectionObserver(([e]) => {
     S.heroVisible = e.isIntersecting;
     if (S.mode === 'landing') stage.running = e.isIntersecting;
@@ -956,19 +902,6 @@ function initReveal() {
     if (e.isIntersecting && S.landingYr) drawHeat($('#landingHeat'), S.landingYr);
   });
   heatIO.observe($('#landingHeat'));
-}
-
-function countUp(el) {
-  const target = +el.dataset.target;
-  if (!isFinite(target)) return;
-  const t0 = performance.now(), dur = 1700;
-  const step = (t) => {
-    const k = Math.min(1, (t - t0) / dur);
-    const v = Math.round(target * (1 - Math.pow(1 - k, 4)));
-    el.textContent = v.toLocaleString('ru-RU');
-    if (k < 1) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
 }
 
 function hideMenu() {
@@ -1154,7 +1087,6 @@ function hideLoader() { $('#loader').classList.remove('show'); }
 
 // ---------- Старт ----------
 async function boot() {
-  buildIsoCity();
   initControls();
   initReveal();
   stage.setViewShift(...landingShift());
