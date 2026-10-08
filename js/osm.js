@@ -29,6 +29,7 @@ async function fetchBox(bb, signal, depth = 0) {
     const parts = await Promise.all(sub.map((b) => fetchBox(b, signal, depth + 1)));
     return parts.flat();
   }
+  if (res.status === 429) throw new Error('rate');
   if (!res.ok) throw new Error(`OSM API ответил ${res.status}`);
   const json = await res.json();
   return json.elements || [];

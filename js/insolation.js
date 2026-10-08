@@ -169,12 +169,12 @@ export class Analyzer {
   }
 
   // Сравнение этажей: часов прямого солнца в год (по отсчётам каждые 4 дня)
-  async floors(winIn, levels, y, tz, onFloor, isStale) {
+  async floors(winIn, y, tz, onFloor, isStale) {
     const out = [];
-    const n = Math.min(levels, 80);
-    for (let f = 1; f <= n; f++) {
+    const lo = winIn.lo, hi = Math.min(winIn.hi, lo + 119);
+    for (let f = lo; f <= hi; f++) {
       if (isStale?.()) return null;
-      const w = { ...winIn, z: floorZ(f), floor: f };
+      const w = { ...winIn, z: floorZ(f, winIn.fh), floor: f };
       const yr = this.year(w, y, tz, 15, 4);
       out.push({ floor: f, hours: yr.litHours });
       onFloor?.(out);
@@ -184,8 +184,22 @@ export class Analyzer {
   }
 }
 
-export function floorZ(floor) {
-  return (floor - 1) * LEVEL_H + 1.5;
+// Высота этажа берётся из данных дома: башня в 213 м и 52 этажа — это 4,1 м на этаж, а не типовые 3 м
+export function floorsOf(b) {
+  let fh = b.h / Math.max(1, b.levels);
+  let top = b.levels;
+  if (!(fh >= 2.6 && fh <= 6)) {
+    // этажность не сходится с высотой — считаем по типовому этажу
+    fh = LEVEL_H;
+    top = Math.max(1, Math.round(b.h / LEVEL_H));
+  }
+  const lo = Math.floor(b.minH / fh + 0.01) + 1;
+  return { lo, hi: Math.max(lo, top), fh };
+}
+
+// Высота центра окна над землёй
+export function floorZ(floor, fh = LEVEL_H) {
+  return (floor - 0.5) * fh;
 }
 
 function runs(state, value, step) {

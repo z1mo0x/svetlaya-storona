@@ -1,6 +1,6 @@
 import { Stage } from './scene.js';
 import { fetchOSM, parseOSM, makeProjection, pointInRings, LEVEL_H } from './osm.js';
-import { Analyzer, floorZ, NIGHT, BLOCKED, LIT } from './insolation.js';
+import { Analyzer, floorZ, floorsOf, NIGHT, BLOCKED, LIT } from './insolation.js';
 import {
   sunPosition, sunVector, localToUTC, guessUtcOffset, formatOffset,
   MONTHS_GEN, dayOfYear, dateFromDoy, fmtTime, fmtDur,
@@ -116,16 +116,17 @@ async function loadPlace(place, prefer) {
     if (token !== S.load) return;
     console.error(e);
     hideLoader();
-    toast(e.message === 'empty'
-      ? 'Здесь нет зданий в OpenStreetMap — попробуйте другой адрес'
-      : 'Не удалось загрузить дома из OpenStreetMap. Проверьте соединение и попробуйте ещё раз.', 5200);
+    const msg = {
+      empty: 'Здесь нет зданий в OpenStreetMap — попробуйте другой адрес',
+      rate: 'OpenStreetMap временно ограничил частоту запросов. Подождите минуту и попробуйте снова.',
+    }[e.message] || 'Не удалось загрузить дома из OpenStreetMap. Проверьте соединение и попробуйте ещё раз.';
+    toast(msg, 5200);
   }
 }
 
 function floorRange(b) {
-  const lo = Math.floor(b.minH / LEVEL_H + 0.01) + 1;
-  const hi = Math.max(lo, Math.round(b.h / LEVEL_H));
-  return [lo, hi];
+  const { lo, hi, fh } = floorsOf(b);
+  return [lo, hi, fh];
 }
 
 // Фасад здания, наиболее близкий к направлению face
@@ -175,10 +176,10 @@ function autoWindow(prefer) {
 // ---------- Окно ----------
 function setWindow(w, { fly = false } = {}) {
   const b = S.model.buildings[w.i];
-  const [lo, hi] = floorRange(b);
+  const [lo, hi, fh] = floorRange(b);
   const L = Math.hypot(w.nx, w.ny) || 1;
-  const win = { ...w, nx: w.nx / L, ny: w.ny / L, floor: clamp(Math.round(w.floor), lo, hi), lo, hi, group: b.group };
-  win.z = floorZ(win.floor);
+  const win = { ...w, nx: w.nx / L, ny: w.ny / L, floor: clamp(Math.round(w.floor), lo, hi), lo, hi, fh, group: b.group };
+  win.z = floorZ(win.floor, fh);
   S.win = win;
   body.classList.add('has-win');
   stage.setTint('target', b.group);
@@ -206,7 +207,7 @@ function setFloor(f) {
   f = clamp(f, S.win.lo, S.win.hi);
   if (f === S.win.floor) return;
   S.win.floor = f;
-  S.win.z = floorZ(f);
+  S.win.z = floorZ(f, S.win.fh);
   stage.setWindow({ ...S.win, label: `${f} этаж` });
   renderWindowPanel();
   recompute(false);
@@ -216,8 +217,10 @@ function setFloor(f) {
 function setBuildingLevels(i, levels) {
   const b = S.model.buildings[i];
   levels = clamp(levels, 1, 160);
+  // если высота известна из OSM, меняем только число этажей, а не габарит дома
+  if (b.heightKnown === undefined) b.heightKnown = b.src === 'height';
   b.levels = levels;
-  b.h = Math.max(b.minH + LEVEL_H, levels * LEVEL_H);
+  if (!b.heightKnown) b.h = Math.max(b.minH + LEVEL_H, levels * LEVEL_H);
   b.src = 'user';
   S.an.items[i].h = b.h;
   S.an.heights[i] = b.h;
@@ -245,7 +248,7 @@ function recompute(withFloors) {
   if (withFloors) {
     S.floors = null;
     renderFloors([]);
-    S.an.floors(S.win, S.win.hi, y, S.tz, (arr) => {
+    S.an.floors(S.win, y, S.tz, (arr) => {
       if (token !== S.calc) return;
       S.floors = arr;
       renderFloors(arr);
@@ -381,7 +384,8 @@ function renderWindowPanel() {
   }
   const b = S.model.buildings[w.i];
   $('#winTitle').textContent = b.name || b.addr || capital(TYPE_NAMES[b.type] || 'Здание');
-  const sub = [b.name && b.addr ? b.addr : TYPE_NAMES[b.type] || 'здание', `${b.levels} ${plural(b.levels, ['этаж', 'этажа', 'этажей'])}`, `${Math.round(b.h)} м`];
+  const lv = groupLevels(b.group);
+  const sub = [b.name && b.addr ? b.addr : TYPE_NAMES[b.type] || 'здание', `${lv} ${plural(lv, ['этаж', 'этажа', 'этажей'])}`, `${Math.round(b.h)} м`];
   $('#winSub').textContent = sub.join(' · ');
   $('#floorOut').textContent = w.floor;
   const fr = $('#floorRange');
@@ -484,7 +488,7 @@ function renderFloors(arr) {
 
 function groupLevels(g) {
   const list = stage.groups.get(g) || [];
-  return Math.max(...list.map((i) => S.model.buildings[i].levels));
+  return Math.max(...list.map((i) => floorsOf(S.model.buildings[i]).hi));
 }
 
 function shortName(b) {
@@ -600,8 +604,8 @@ function onPick(hit, e) {
   if (!hit) return;
   if (hit.wall) {
     const b = S.model.buildings[hit.i];
-    const [lo, hi] = floorRange(b);
-    const floor = clamp(Math.floor(hit.z / LEVEL_H) + 1, lo, hi);
+    const [lo, hi, fh] = floorRange(b);
+    const floor = clamp(Math.floor(hit.z / fh) + 1, lo, hi);
     setWindow({ i: hit.i, x: hit.x, y: hit.y, nx: hit.nx, ny: hit.ny, floor });
   } else {
     showFocus(hit.i, e.clientX, e.clientY);
