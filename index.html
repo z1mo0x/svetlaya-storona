@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Полдень — сколько солнца будет в вашей квартире</title>
+  <meta name="description" content="3D-макет квартала по любому адресу: кликните по стене, где окно, и посмотрите, сколько прямого солнца оно получает каждый день года. Проверка по нормам инсоляции.">
+  <meta name="theme-color" content="#f3ede3">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='14' fill='%23ee9a3a'/%3E%3Cpath d='M4 46h56' stroke='%231d1712' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300..700;1,300..700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@300..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body class="is-landing is-booting">
+  <div class="grain" aria-hidden="true"></div>
+
+  <!-- 3D-сцена: в лендинге — фон героя, в приложении — рабочее поле -->
+  <div class="stage" id="stage">
+    <canvas id="gl" aria-label="3D-макет квартала"></canvas>
+    <div class="labels" id="labels" aria-hidden="true"></div>
+    <div class="stage-veil" aria-hidden="true"></div>
+  </div>
+
+  <!-- Навигация-остров -->
+  <header class="nav" id="nav">
+    <div class="nav-pill">
+      <a class="logo" href="#top" aria-label="Полдень — на главную">
+        <span class="logo-mark" aria-hidden="true"><i></i></span>
+        <span class="logo-word">Полдень</span>
+      </a>
+      <nav class="nav-links" aria-label="Разделы">
+        <a href="#how">Как это работает</a>
+        <a href="#calendar">Календарь</a>
+        <a href="#norm">Норма</a>
+        <a href="#faq">Вопросы</a>
+      </nav>
+      <button class="btn btn-ink btn-sm nav-cta" data-open-app type="button">
+        <span>Открыть 3D-карту</span>
+        <span class="btn-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></span>
+      </button>
+      <button class="burger" id="burger" type="button" aria-label="Меню" aria-expanded="false"><i></i><i></i></button>
+    </div>
+  </header>
+
+  <div class="menu" id="menu" aria-hidden="true">
+    <nav>
+      <a href="#how" style="--i:0">Как это работает</a>
+      <a href="#calendar" style="--i:1">Солнечный календарь</a>
+      <a href="#norm" style="--i:2">Норма инсоляции</a>
+      <a href="#faq" style="--i:3">Вопросы</a>
+      <button type="button" class="menu-cta" data-open-app style="--i:4">Открыть 3D-карту ↗</button>
+    </nav>
+  </div>
+
+  <main class="landing" id="landing">
+    <!-- ГЕРОЙ -->
+    <section class="hero" id="top">
+      <div class="hero-copy">
+        <span class="eyebrow eyebrow-glass"><i class="eyebrow-dot"></i>Инсоляция · 3D-макет · любой адрес</span>
+        <h1 class="display">
+          <span class="line"><span>Сколько <em>солнца</em></span></span>
+          <span class="line"><span>будет в вашей</span></span>
+          <span class="line"><span>квартире?</span></span>
+        </h1>
+        <p class="lede">Найдите дом, кликните по стене там, где окно, — и увидите каждый солнечный луч на год вперёд. До того, как подпишете договор.</p>
+
+        <form class="search shell" data-search autocomplete="off">
+          <div class="core search-core">
+            <svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+            <input type="search" name="q" placeholder="Город, улица, дом" aria-label="Адрес" enterkeyhint="search">
+            <button class="btn btn-sun" type="submit">
+              <span>Рассчитать</span>
+              <span class="btn-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></span>
+            </button>
+          </div>
+          <ul class="suggest" role="listbox"></ul>
+        </form>
+
+        <div class="quick">
+          <span>Или откройте пример:</span>
+          <button type="button" data-place="demo">Пресня, у Москва-Сити</button>
+          <button type="button" data-place="spb">Петроградская сторона</button>
+          <button type="button" data-place="ekb">Екатеринбург-Сити</button>
+        </div>
+      </div>
+
+      <aside class="readout shell" aria-live="polite">
+        <div class="core">
+          <div class="readout-top">
+            <span class="micro">Демо · Москва, Пресня</span>
+            <span class="micro" id="roDate">8 октября</span>
+          </div>
+          <div class="readout-main">
+            <span class="readout-clock" id="roClock">12:00</span>
+            <span class="readout-sun"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg><b id="roAlt">24°</b></span>
+          </div>
+          <canvas class="readout-track" id="roTrack" height="22"></canvas>
+          <p class="readout-status" id="roStatus"><i></i><span>Окно 3-го этажа на солнце</span></p>
+        </div>
+      </aside>
+
+      <div class="hero-foot">
+        <span class="scroll-cue"><i></i>Листайте</span>
+        <span class="micro">Вращайте макет мышью</span>
+      </div>
+    </section>
+
+    <!-- МАНИФЕСТ -->
+    <section class="manifest section" id="why">
+      <div class="wrap">
+        <span class="eyebrow" data-reveal>Зачем это</span>
+        <p class="manifest-text" data-reveal>
+          На рендере застройщика солнце светит всегда. Мы покажем, как будет <em>на самом деле</em>: в декабре, в девять утра, на&nbsp;вашем этаже.
+        </p>
+        <div class="stats">
+          <div class="stat shell" data-reveal style="--d:0">
+            <div class="core">
+              <span class="stat-num"><b data-count id="stHours">—</b><small>ч</small></span>
+              <p>прямого солнца в год у окна <b id="stFloor">2-го</b> этажа пятиэтажки на Пресне</p>
+            </div>
+          </div>
+          <div class="stat shell" data-reveal style="--d:1">
+            <div class="core">
+              <span class="stat-num"><b data-count id="stTowers">—</b><small>%</small></span>
+              <p>солнечного времени этого окна забирают <b>башни Москва-Сити</b><span id="stTowersNear"></span></p>
+            </div>
+          </div>
+          <div class="stat shell" data-reveal style="--d:2">
+            <div class="core">
+              <span class="stat-num"><b data-count id="stWinter">—</b><small>мин</small></span>
+              <p>прямого солнца достанется окну <b>22 декабря</b> — в самый короткий день года</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- КАК ЭТО РАБОТАЕТ -->
+    <section class="how section" id="how">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow" data-reveal>Как это работает</span>
+          <h2 class="title" data-reveal>Четыре шага от&nbsp;адреса<br>до <em>каждого луча</em></h2>
+        </div>
+        <div class="bento">
+          <article class="card shell card-a" data-reveal style="--d:0">
+            <div class="core">
+              <div class="card-art card-art-iso">
+                <svg id="isoCity" viewBox="44 20 436 350" aria-hidden="true"></svg>
+                <ul class="iso-stats" id="isoStats" aria-label="Данные демо-квартала"></ul>
+              </div>
+              <div class="card-text">
+                <span class="card-num">01</span>
+                <h3>Собираем квартал</h3>
+                <p>Контуры и этажность каждого здания в радиусе 430 метров берём из OpenStreetMap и выдавливаем в 3D. Нет высоты — подставим типовую и подсветим, чтобы вы её поправили.</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="card shell card-b" data-reveal style="--d:1">
+            <div class="core">
+              <div class="card-art">
+                <svg viewBox="0 0 320 220" aria-hidden="true" class="facade-svg">
+                  <defs>
+                    <linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbf8f3"/><stop offset="1" stop-color="#eae2d5"/></linearGradient>
+                  </defs>
+                  <rect x="70" y="18" width="180" height="202" rx="3" fill="url(#fg)" stroke="rgba(29,23,18,.12)"/>
+                  <g fill="rgba(29,23,18,.07)">
+                    <rect x="88" y="34" width="22" height="18" rx="2"/><rect x="124" y="34" width="22" height="18" rx="2"/><rect x="174" y="34" width="22" height="18" rx="2"/><rect x="210" y="34" width="22" height="18" rx="2"/>
+                    <rect x="88" y="68" width="22" height="18" rx="2"/><rect x="124" y="68" width="22" height="18" rx="2"/><rect x="174" y="68" width="22" height="18" rx="2"/><rect x="210" y="68" width="22" height="18" rx="2"/>
+                    <rect x="88" y="102" width="22" height="18" rx="2"/><rect x="174" y="102" width="22" height="18" rx="2"/><rect x="210" y="102" width="22" height="18" rx="2"/>
+                    <rect x="88" y="136" width="22" height="18" rx="2"/><rect x="124" y="136" width="22" height="18" rx="2"/><rect x="174" y="136" width="22" height="18" rx="2"/><rect x="210" y="136" width="22" height="18" rx="2"/>
+                    <rect x="88" y="170" width="22" height="18" rx="2"/><rect x="124" y="170" width="22" height="18" rx="2"/><rect x="174" y="170" width="22" height="18" rx="2"/><rect x="210" y="170" width="22" height="18" rx="2"/>
+                  </g>
+                  <circle class="pulse" cx="135" cy="111" r="16" fill="none" stroke="#ee9a3a" stroke-width="1.2"/>
+                  <rect x="124" y="102" width="22" height="18" rx="2" fill="#f3b56f"/>
+                  <path d="M146 111h44" stroke="#c8622a" stroke-width="1" stroke-dasharray="3 3"/>
+                  <text x="196" y="108" class="svg-mono">3 этаж</text>
+                  <text x="196" y="121" class="svg-mono svg-dim">окно на ЮЗ · 214°</text>
+                  <path d="M40 220h240" stroke="rgba(29,23,18,.25)"/>
+                  <path d="M150 58l10 0" stroke="none"/>
+                </svg>
+              </div>
+              <div class="card-text">
+                <span class="card-num">02</span>
+                <h3>Ставим окно</h3>
+                <p>Кликните по стене там, где ваше окно. По высоте клика узнаем этаж, по стене — куда смотрит окно и под каким углом в него может заглянуть солнце.</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="card shell card-c" data-reveal style="--d:2">
+            <div class="core">
+              <div class="card-art">
+                <svg viewBox="0 0 320 220" aria-hidden="true" class="dome-svg">
+                  <path d="M30 196h260" stroke="rgba(29,23,18,.25)"/>
+                  <path d="M52 196C70 70 250 70 268 196" fill="none" stroke="rgba(29,23,18,.28)" stroke-dasharray="4 4"/>
+                  <path d="M76 196C96 104 224 104 244 196" fill="none" stroke="#ee9a3a" stroke-width="1.6"/>
+                  <path d="M104 196C124 140 196 140 216 196" fill="none" stroke="rgba(29,23,18,.28)" stroke-dasharray="4 4"/>
+                  <rect x="150" y="150" width="26" height="46" fill="#f3b56f" opacity=".9"/>
+                  <rect x="200" y="96" width="34" height="100" fill="#e2dccf" stroke="rgba(29,23,18,.12)"/>
+                  <circle cx="163" cy="166" r="2.6" fill="#c8622a"/>
+                  <path d="M163 166 112 118" stroke="#ee9a3a" stroke-width="1.6"/>
+                  <path d="M163 166 160 107" stroke="#ee9a3a" stroke-width="1.6"/>
+                  <path d="M163 166 200 132" stroke="#7f8aa3" stroke-width="1.4" stroke-dasharray="3 3"/>
+                  <circle cx="112" cy="118" r="7" fill="#ffd28a"/>
+                  <circle cx="160" cy="107" r="7" fill="#ffd28a"/>
+                  <circle cx="226" cy="122" r="7" fill="#ffd28a" opacity=".45"/>
+                  <path d="M196 128l8 8M204 128l-8 8" stroke="#5d6d93" stroke-width="1.4"/>
+                  <text x="56" y="62" class="svg-mono svg-dim">22 июня</text>
+                  <text x="132" y="98" class="svg-mono">сегодня</text>
+                  <text x="236" y="168" class="svg-mono svg-dim">22 дек</text>
+                </svg>
+              </div>
+              <div class="card-text">
+                <span class="card-num">03</span>
+                <h3>Пускаем лучи</h3>
+                <p>Каждые 10 минут каждого дня года прокладываем луч от окна к солнцу. Упёрся в дом — тень, прошёл — прямое солнце. Около 50 000 лучей за секунду, прямо в браузере.</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="card shell card-d" id="calendar" data-reveal style="--d:3">
+            <div class="core">
+              <div class="card-text card-text-row">
+                <div>
+                  <span class="card-num">04</span>
+                  <h3>Солнечный календарь</h3>
+                  <p>365 дней на 24 часа для одного окна. Это настоящий расчёт для демо-дома на Пресне: видно, как зимой башни Москва-Сити съедают утреннее солнце.</p>
+                </div>
+                <ul class="legend">
+                  <li><i class="lg-lit"></i>прямое солнце</li>
+                  <li><i class="lg-blk"></i>закрыто домом</li>
+                  <li><i class="lg-beh"></i>солнце за стеной</li>
+                </ul>
+              </div>
+              <div class="heat-wrap">
+                <div class="heat-hours" aria-hidden="true"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+                <canvas class="heat" id="landingHeat" height="240"></canvas>
+                <div class="heat-months" aria-hidden="true"><span>янв</span><span>фев</span><span>мар</span><span>апр</span><span>май</span><span>июн</span><span>июл</span><span>авг</span><span>сен</span><span>окт</span><span>ноя</span><span>дек</span></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- НОРМА -->
+    <section class="norm-sec section" id="norm">
+      <div class="wrap">
+        <div class="norm-top">
+          <span class="eyebrow eyebrow-dark" data-reveal>Норма инсоляции</span>
+          <h2 class="title" data-reveal>Два часа солнца&nbsp;— это <em>закон</em>, а&nbsp;не&nbsp;пожелание</h2>
+        </div>
+        <div class="norm-grid">
+          <div class="norm-intro">
+            <p class="norm-lede" data-reveal>СанПиН 1.2.3685-21 требует, чтобы в квартире хотя бы одна комната (в четырёх- и более комнатных — две) получала непрерывное прямое солнце не меньше нормы. Её считают в расчётный день — первый день нормируемого периода.</p>
+            <p class="norm-note" data-reveal>Допускается прерывистая инсоляция: один из периодов — не меньше часа, а сумма — на полчаса больше нормы. «Полдень» проверяет оба варианта, но не заменяет официальный расчёт по ГОСТ Р 57795-2017.</p>
+          </div>
+          <div class="zones">
+            <div class="lat-scale" data-reveal aria-hidden="true">
+              <span style="--p:0%">Мурманск · 69°</span>
+              <span style="--p:36%">СПб · 60°</span>
+              <span class="lat-mark" style="--p:43%">58°</span>
+              <span style="--p:52%">Москва · 56°</span>
+              <span class="lat-mark" style="--p:83%">48°</span>
+              <span style="--p:100%">Сочи · 44°</span>
+            </div>
+            <div class="zone shell shell-dark" data-reveal style="--d:0">
+              <div class="core">
+                <span class="zone-name">Северная зона</span>
+                <span class="zone-lat">севернее 58° с.ш.</span>
+                <span class="zone-val">2,5<small>ч</small></span>
+                <span class="zone-period">с 22 апреля по 22 августа</span>
+              </div>
+            </div>
+            <div class="zone shell shell-dark zone-hl" data-reveal style="--d:1">
+              <div class="core">
+                <span class="zone-name">Центральная зона</span>
+                <span class="zone-lat">от 48° до 58° с.ш.</span>
+                <span class="zone-val">2<small>ч</small></span>
+                <span class="zone-period">с 22 апреля по 22 августа</span>
+              </div>
+            </div>
+            <div class="zone shell shell-dark" data-reveal style="--d:2">
+              <div class="core">
+                <span class="zone-name">Южная зона</span>
+                <span class="zone-lat">южнее 48° с.ш.</span>
+                <span class="zone-val">1,5<small>ч</small></span>
+                <span class="zone-period">с 22 февраля по 22 октября</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ВОПРОСЫ -->
+    <section class="faq section" id="faq">
+      <div class="wrap faq-grid">
+        <div class="section-head">
+          <span class="eyebrow" data-reveal>Вопросы</span>
+          <h2 class="title" data-reveal>Честно о&nbsp;<em>точности</em></h2>
+        </div>
+        <div class="faq-list">
+          <details class="qa" data-reveal>
+            <summary>Насколько точен расчёт?<i aria-hidden="true"></i></summary>
+            <div class="qa-body"><p>Положение солнца считаем с точностью около десятой доли градуса. Главный источник ошибок — данные о домах: контуры в OpenStreetMap обычно точные, а этажность бывает не указана или устарела. Такие дома на макете светлее остальных — кликните по крыше и поправьте этажность.</p></div>
+          </details>
+          <details class="qa" data-reveal>
+            <summary>Учитываются ли деревья, балконы и облака?<i aria-hidden="true"></i></summary>
+            <div class="qa-body"><p>Нет. Как и в нормативной методике, деревья не загораживают солнце, а погода не учитывается — считаем геометрически возможное прямое солнце. Балконы и козырьки над окном тоже не моделируются.</p></div>
+          </details>
+          <details class="qa" data-reveal>
+            <summary>Дом напротив ещё строится — его видно?<i aria-hidden="true"></i></summary>
+            <div class="qa-body"><p>Только если его уже нанесли в OpenStreetMap. Многие стройки там есть вместе с проектной этажностью — на макете они выглядят как обычные дома. Если стройки нет, смотрите проектную документацию соседнего участка.</p></div>
+          </details>
+          <details class="qa" data-reveal>
+            <summary>Это официальное заключение?<i aria-hidden="true"></i></summary>
+            <div class="qa-body"><p>Нет. «Полдень» — быстрый ориентир, чтобы задать правильные вопросы застройщику или риелтору. Официальный расчёт инсоляции делают проектировщики по ГОСТ Р 57795-2017 на точной модели.</p></div>
+          </details>
+          <details class="qa" data-reveal>
+            <summary>Куда уходят мои данные?<i aria-hidden="true"></i></summary>
+            <div class="qa-body"><p>Адрес отправляется в геокодер Photon, чтобы найти координаты, а контуры домов загружаются из открытого API OpenStreetMap. Весь расчёт идёт в вашем браузере — на наш сервер ничего не отправляется, потому что его нет.</p></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ФИНАЛ -->
+    <section class="final section">
+      <div class="wrap final-inner">
+        <h2 class="final-title" data-reveal>Проверьте квартиру <em>до&nbsp;того</em>,<br>как в ней жить</h2>
+        <button class="btn btn-sun btn-lg" type="button" data-open-app data-reveal>
+          <span>Открыть 3D-карту</span>
+          <span class="btn-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></span>
+        </button>
+      </div>
+      <footer class="foot wrap">
+        <span class="logo logo-sm"><span class="logo-mark" aria-hidden="true"><i></i></span><span class="logo-word">Полдень</span></span>
+        <p>Прототип. Данные о зданиях © участники <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (ODbL). Поиск адресов — <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a>. 3D — three.js. Расчёт ориентировочный и не является заключением по ГОСТ Р 57795-2017.</p>
+      </footer>
+    </section>
+  </main>
+
+  <!-- ПРИЛОЖЕНИЕ -->
+  <div class="app" id="app" aria-hidden="true">
+    <div class="app-top">
+      <button class="pill back" id="backBtn" type="button" aria-label="На главную">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+        <span class="logo-mark" aria-hidden="true"><i></i></span>
+        <span class="back-word">Полдень</span>
+      </button>
+      <form class="search shell app-search" data-search autocomplete="off">
+        <div class="core search-core">
+          <svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+          <input type="search" name="q" placeholder="Другой адрес" aria-label="Адрес" enterkeyhint="search">
+          <button class="btn btn-ink btn-sm" type="submit"><span>Найти</span></button>
+        </div>
+        <ul class="suggest" role="listbox"></ul>
+      </form>
+      <div class="pill place-pill" id="placePill"><span id="placeName">Москва</span><b id="tzName">UTC+3</b></div>
+    </div>
+
+    <div class="panels">
+      <aside class="panel panel-left shell">
+        <div class="core">
+          <section class="p-sec">
+            <span class="eyebrow">Ваше окно</span>
+            <h3 class="p-title" id="winTitle">Кликните по стене дома</h3>
+            <p class="p-sub" id="winSub">там, где находится ваше окно</p>
+          </section>
+
+          <section class="p-sec" id="floorSec">
+            <div class="p-row">
+              <label class="p-label" for="floorRange">Этаж</label>
+              <div class="stepper">
+                <button type="button" data-step="floor" data-d="-1" aria-label="Ниже">−</button>
+                <output id="floorOut">3</output>
+                <button type="button" data-step="floor" data-d="1" aria-label="Выше">+</button>
+              </div>
+            </div>
+            <input type="range" id="floorRange" min="1" max="5" value="3">
+            <p class="facing" id="facing">Окно смотрит на <b>юг</b> · 180°</p>
+          </section>
+
+          <section class="p-sec" id="levelsSec">
+            <div class="p-row">
+              <span class="p-label">Этажность дома <span class="tag" id="levelsTag">по OSM</span></span>
+              <div class="stepper">
+                <button type="button" data-step="levels" data-d="-1" aria-label="Меньше этажей">−</button>
+                <output id="levelsOut">5</output>
+                <button type="button" data-step="levels" data-d="1" aria-label="Больше этажей">+</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="p-sec">
+            <div class="p-row">
+              <span class="p-label">Дата</span>
+              <span class="p-value" id="dateOut">8 октября</span>
+            </div>
+            <div class="chips" id="dateChips">
+              <button type="button" data-date="today">Сегодня</button>
+              <button type="button" data-date="11-22">22 дек</button>
+              <button type="button" data-date="3-22">22 апр</button>
+              <button type="button" data-date="5-22">22 июн</button>
+            </div>
+            <input type="range" id="doyRange" min="0" max="364" value="280">
+            <div class="months" aria-hidden="true"><span>я</span><span>ф</span><span>м</span><span>а</span><span>м</span><span>и</span><span>и</span><span>а</span><span>с</span><span>о</span><span>н</span><span>д</span></div>
+          </section>
+
+          <p class="hint">Тяните — вращение, колесо — масштаб, правая кнопка — сдвиг. Клик по крыше — уточнить этажность.</p>
+        </div>
+      </aside>
+
+      <aside class="panel panel-right shell" id="results">
+        <div class="core">
+          <div class="empty" id="emptyState">
+            <div class="empty-art" aria-hidden="true">
+              <svg viewBox="0 0 120 90"><rect x="28" y="10" width="64" height="80" rx="2" fill="#fbf8f3" stroke="rgba(29,23,18,.15)"/><g fill="rgba(29,23,18,.08)"><rect x="38" y="20" width="12" height="10"/><rect x="70" y="20" width="12" height="10"/><rect x="38" y="40" width="12" height="10"/><rect x="70" y="40" width="12" height="10"/><rect x="38" y="60" width="12" height="10"/><rect x="70" y="60" width="12" height="10"/></g><rect class="blink" x="54" y="40" width="12" height="10" fill="#f3b56f"/><path class="cursor" d="M64 48l10 22 3-9 9-3z" fill="#1d1712"/></svg>
+            </div>
+            <h3>Кликните по стене дома</h3>
+            <p>на той высоте, где ваше окно. Мы определим этаж и сторону света и посчитаем солнце на весь год.</p>
+          </div>
+
+          <div class="results" id="resultsBody">
+            <section class="r-hero">
+              <span class="eyebrow" id="rDate">8 октября</span>
+              <div class="r-big"><span id="rLit">—</span></div>
+              <p class="r-cap" id="rCap">прямого солнца в окне за день</p>
+              <div class="r-intervals" id="rIntervals"></div>
+            </section>
+
+            <section class="norm-card" id="normCard">
+              <div class="norm-head">
+                <span class="norm-badge" id="normBadge">—</span>
+                <span class="micro">Ориентир по СанПиН</span>
+              </div>
+              <p class="norm-text" id="normText"></p>
+            </section>
+
+            <section class="r-sec">
+              <div class="r-head">
+                <h4>Солнечный календарь</h4>
+                <span class="micro" id="yearHours">— ч в год</span>
+              </div>
+              <div class="heat-wrap heat-wrap-sm">
+                <canvas class="heat" id="heat" height="150"></canvas>
+                <div class="heat-months" aria-hidden="true"><span>я</span><span>ф</span><span>м</span><span>а</span><span>м</span><span>и</span><span>и</span><span>а</span><span>с</span><span>о</span><span>н</span><span>д</span></div>
+              </div>
+              <ul class="legend legend-sm">
+                <li><i class="lg-lit"></i>солнце</li>
+                <li><i class="lg-blk"></i>закрыто домом</li>
+                <li><i class="lg-beh"></i>за стеной</li>
+              </ul>
+            </section>
+
+            <section class="r-sec">
+              <div class="r-head"><h4>Кто забирает солнце</h4><span class="micro">за год</span></div>
+              <ol class="blockers" id="blockers"></ol>
+            </section>
+
+            <section class="r-sec">
+              <div class="r-head"><h4>Этажи этого стояка</h4><span class="micro">часов солнца в год</span></div>
+              <div class="floors" id="floors"></div>
+            </section>
+
+            <section class="r-sec r-actions">
+              <button class="btn btn-ghost btn-sm" id="shareBtn" type="button">
+                <span>Скопировать ссылку на окно</span>
+                <span class="btn-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 15 15 9M10 6.5l1.8-1.8a4 4 0 0 1 5.6 5.6L15.6 12M8.4 12l-1.8 1.8a4 4 0 0 0 5.6 5.6l1.8-1.8"/></svg></span>
+              </button>
+            </section>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="timebar shell">
+      <div class="core">
+        <button class="play" id="playBtn" type="button" aria-label="Запустить время">
+          <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg>
+          <svg class="i-pause" viewBox="0 0 24 24"><path d="M8 5.5v13M16 5.5v13"/></svg>
+        </button>
+        <div class="clock">
+          <span id="clock">12:00</span>
+          <small id="sunInfo">солнце 24° · азимут 196°</small>
+        </div>
+        <div class="track" id="track">
+          <canvas id="dayCanvas" height="34"></canvas>
+          <div class="playhead" id="playhead"><i></i></div>
+          <div class="track-hours" aria-hidden="true"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+        </div>
+        <span class="ray-state" id="rayState"><i></i><span>—</span></span>
+      </div>
+    </div>
+
+    <div class="edge-note shell" id="edgeNote" hidden>
+      <div class="core">
+        <p>Окно у края макета: дома за его границей не учтены.</p>
+        <button class="btn btn-ink btn-sm" id="recenterBtn" type="button"><span>Перестроить вокруг окна</span></button>
+      </div>
+    </div>
+
+    <div class="focus-card shell" id="focusCard" hidden>
+      <div class="core">
+        <button class="x" type="button" id="focusClose" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        <span class="micro" id="focusKind">Дом</span>
+        <h4 id="focusTitle">—</h4>
+        <div class="p-row">
+          <span class="p-label">Этажей</span>
+          <div class="stepper">
+            <button type="button" data-step="focus" data-d="-1" aria-label="Меньше">−</button>
+            <output id="focusOut">5</output>
+            <button type="button" data-step="focus" data-d="1" aria-label="Больше">+</button>
+          </div>
+        </div>
+        <p class="p-sub" id="focusNote"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip" id="tip" role="tooltip"></div>
+  <div class="loader" id="loader" aria-live="polite">
+    <div class="loader-pill shell"><div class="core"><span class="loader-sun"><i></i></span><span id="loaderText">Собираем квартал…</span><span class="loader-bar"><i id="loaderBar"></i></span></div></div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
