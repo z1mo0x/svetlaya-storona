@@ -1,6 +1,8 @@
 // Загрузка и разбор данных OpenStreetMap в компактную модель квартала.
 // Координаты модели — метры в локальной плоскости: x — на восток, y — на север.
 
+import { num, isBuilding, isPart, pickBuildingTags, roadOf, areaKind } from './osm-rules.js';
+
 export const LEVEL_H = 3;
 const OSM_API = 'https://api.openstreetmap.org/api/0.6/map.json';
 
@@ -161,13 +163,6 @@ function concatFlat(a, b) {
 
 // ---------- Теги ----------
 
-function num(v) {
-  if (v == null) return NaN;
-  const m = String(v).replace(',', '.').match(/-?\d+(\.\d+)?/g);
-  if (!m) return NaN;
-  return Math.max(...m.map(Number));
-}
-
 const GUESS_LEVELS = {
   house: 2, detached: 2, semidetached_house: 2, terrace: 2, bungalow: 1, cabin: 1, farm: 2,
   garage: 1, garages: 1, shed: 1, hut: 1, kiosk: 1, carport: 1, service: 1, transformer_tower: 1,
@@ -176,7 +171,6 @@ const GUESS_LEVELS = {
   industrial: 2, warehouse: 2, school: 3, kindergarten: 2, university: 4, college: 3,
   hospital: 5, public: 3, civic: 3, church: 2, cathedral: 3, construction: 5,
 };
-const SKIP_BUILDING = new Set(['no', 'entrance', 'underground', 'collapsed', 'demolished', 'razed']);
 
 function buildingInfo(tags) {
   const type = tags.building && tags.building !== 'yes' ? tags.building : tags['building:part'] || 'yes';
@@ -212,66 +206,32 @@ function buildingInfo(tags) {
   };
 }
 
-const ROAD_W = {
-  motorway: 22, trunk: 20, primary: 16, secondary: 13, tertiary: 11, unclassified: 8,
-  residential: 8, living_street: 6, service: 4.5, pedestrian: 6, track: 3.5, busway: 8,
-  motorway_link: 9, trunk_link: 9, primary_link: 9, secondary_link: 8, tertiary_link: 7,
-  footway: 2.4, path: 2, cycleway: 2.4, steps: 2.4, bridleway: 2,
-};
-
-function areaKind(t) {
-  if (t.natural === 'water' || t.waterway === 'riverbank' || t.waterway === 'dock' ||
-      t.landuse === 'reservoir' || t.landuse === 'basin') return 'water';
-  if (['park', 'garden', 'playground', 'dog_park', 'nature_reserve'].includes(t.leisure)) return 'park';
-  if (['grass', 'forest', 'meadow', 'recreation_ground', 'village_green', 'cemetery', 'allotments',
-       'flowerbed', 'orchard', 'plant_nursery'].includes(t.landuse)) return t.landuse === 'forest' ? 'wood' : 'park';
-  if (['wood', 'scrub', 'grassland', 'heath'].includes(t.natural)) return t.natural === 'wood' ? 'wood' : 'park';
-  if (['pitch', 'track', 'stadium'].includes(t.leisure)) return 'pitch';
-  if ((t.highway === 'pedestrian' && t.area === 'yes') || t.place === 'square' || t.amenity === 'parking' ||
-      t['area:highway']) return 'paved';
-  return null;
-}
-
 // Детерминированный генератор, чтобы деревья в парках стояли одинаково при каждой загрузке.
 function rng(seed) {
-  let s = seed % 2147483647;
+  let s = Math.abs(seed) % 2147483647;
   if (s <= 0) s += 2147483646;
   return () => (s = (s * 16807) % 2147483647) / 2147483647;
 }
 
-// ---------- Разбор ----------
+// ---------- Слой 1: элементы OSM API → признаки в градусах ----------
+// Признаки: { buildings: [{id, tags, polys:[{outer, holes}], isPart}], roads: [{kind, w, bridge, pts}],
+//             areas: [{kind, rings, seed}], trees: [lon, lat, ...], treeRows: [[lon, lat, ...]] }
+// Координаты — плоские массивы [lon, lat, lon, lat, ...]. Тайлы отдают признаки в этом же виде.
 
-export function parseOSM(elements, lat0, lon0, R = 430) {
-  const proj = makeProjection(lat0, lon0);
+export function elementsToFeatures(elements) {
   const nodes = new Map(), ways = new Map(), rels = [];
   for (const e of elements) {
     if (e.type === 'node') nodes.set(e.id, e);
     else if (e.type === 'way') ways.set(e.id, e);
     else if (e.type === 'relation') rels.push(e);
   }
-  const cache = new Map();
   const coordOf = (id) => {
-    let p = cache.get(id);
-    if (!p) {
-      const n = nodes.get(id);
-      if (!n) return null;
-      p = proj.toXY(n.lat, n.lon);
-      cache.set(id, p);
-    }
-    return p;
+    const n = nodes.get(id);
+    return n ? [n.lon, n.lat] : null;
   };
+  const f = { buildings: [], roads: [], areas: [], trees: [], treeRows: [] };
 
-  const raw = []; // здания и части до фильтрации
-  const areas = [];
-  const roads = [];
-  const treePts = [];
-  const usedAsMember = new Set();
-
-  const isBuilding = (t) => t && ((t.building && !SKIP_BUILDING.has(t.building)) ||
-    (t['building:part'] && t['building:part'] !== 'no')) && t.location !== 'underground' &&
-    !(num(t.layer) < 0 && !t.height && !t['building:levels']);
-
-  // Мультиполигоны
+  // Мультиполигоны: дома с дворами и большие парки, вода
   for (const r of rels) {
     const t = r.tags || {};
     if (t.type !== 'multipolygon' && t.type !== 'building') continue;
@@ -285,16 +245,14 @@ export function parseOSM(elements, lat0, lon0, R = 430) {
     if (isBuilding(t)) {
       const outers = assembleRings(outerW, coordOf, false);
       const inners = assembleRings(innerW, coordOf, false);
-      if (!outers.length) continue;
-      raw.push({ id: r.id, tags: t, polys: groupPolys(outers, inners), isPart: !!t['building:part'] && !t.building });
-      for (const m of r.members || []) if (m.type === 'way') usedAsMember.add(m.ref);
+      if (outers.length) f.buildings.push({ id: -r.id, tags: pickBuildingTags(t), polys: groupPolys(outers, inners), isPart: isPart(t) });
       continue;
     }
     const kind = areaKind(t);
     if (kind) {
       const outers = assembleRings(outerW, coordOf, true);
       const inners = assembleRings(innerW, coordOf, true);
-      if (outers.length) areas.push({ kind, rings: [...outers, ...inners], seed: r.id });
+      if (outers.length) f.areas.push({ kind, rings: [...outers, ...inners], seed: r.id });
     }
   }
 
@@ -304,50 +262,60 @@ export function parseOSM(elements, lat0, lon0, R = 430) {
     const closed = w.nodes.length >= 4 && w.nodes[0] === w.nodes[w.nodes.length - 1];
     if (isBuilding(t) && closed) {
       const ring = toFlat(w.nodes.slice(0, -1), coordOf);
-      if (ring) raw.push({ id: w.id, tags: t, polys: [{ outer: ring, holes: [] }], isPart: !!t['building:part'] && !t.building });
+      if (ring) f.buildings.push({ id: w.id, tags: pickBuildingTags(t), polys: [{ outer: ring, holes: [] }], isPart: isPart(t) });
       continue;
     }
-    if (t.highway && ROAD_W[t.highway] && t.area !== 'yes' && t.tunnel !== 'yes' && t.covered !== 'yes' &&
-        t.tunnel !== 'building_passage') {
-      const pts = toFlat(w.nodes, coordOf) || (w.nodes.length === 2 ? toFlatLoose(w.nodes, coordOf) : null);
-      if (pts) roads.push({ pts, w: num(t.width) > 0 ? Math.min(num(t.width), 40) : ROAD_W[t.highway], kind: t.highway, bridge: t.bridge === 'yes' });
-      continue;
-    }
-    if (t.railway && ['rail', 'light_rail', 'tram', 'subway', 'monorail'].includes(t.railway) && t.tunnel !== 'yes') {
-      const pts = toFlat(w.nodes, coordOf) || toFlatLoose(w.nodes, coordOf);
-      if (pts) roads.push({ pts, w: t.railway === 'tram' ? 2.2 : 3.4, kind: 'rail' });
+    const road = roadOf(t);
+    if (road) {
+      const pts = toFlatLoose(w.nodes, coordOf);
+      if (pts) f.roads.push({ ...road, pts });
       continue;
     }
     if (t.natural === 'tree_row') {
       const pts = toFlatLoose(w.nodes, coordOf);
-      if (pts) sampleLine(pts, 8, treePts);
+      if (pts) f.treeRows.push(pts);
       continue;
     }
     const kind = areaKind(t);
     if (kind && closed) {
       const ring = toFlat(w.nodes.slice(0, -1), coordOf);
-      if (ring) areas.push({ kind, rings: [ring], seed: w.id });
+      if (ring) f.areas.push({ kind, rings: [ring], seed: w.id });
     }
   }
 
   for (const n of nodes.values()) {
-    if (n.tags && n.tags.natural === 'tree') {
-      const p = coordOf(n.id);
-      treePts.push(p[0], p[1]);
-    }
+    if (n.tags && n.tags.natural === 'tree') f.trees.push(n.lon, n.lat);
   }
+  return f;
+}
+
+// ---------- Слой 2: признаки → модель квартала в метрах ----------
+
+export function featuresToModel(f, lat0, lon0, R = 430) {
+  const proj = makeProjection(lat0, lon0);
+  const P = (flat) => {
+    const out = new Array(flat.length);
+    for (let i = 0; i < flat.length; i += 2) {
+      out[i] = (flat[i] - lon0) * proj.mLon;
+      out[i + 1] = (flat[i + 1] - lat0) * proj.mLat;
+    }
+    return out;
+  };
+
+  const raw = f.buildings.map((b) => {
+    const polys = b.polys.map((p) => ({ outer: P(p.outer), holes: p.holes.map(P) }));
+    const bbox = bboxOf(polys.map((p) => p.outer));
+    return {
+      id: b.id, tags: b.tags, polys, isPart: b.isPart, bbox,
+      rings: polys.flatMap((p) => [p.outer, ...p.holes]),
+      cx: (bbox[0] + bbox[2]) / 2, cy: (bbox[1] + bbox[3]) / 2,
+    };
+  });
 
   // Контуры, у которых есть части (building:part), не рисуем — их заменяют части.
   const outlines = raw.filter((b) => !b.isPart);
-  const parts = raw.filter((b) => b.isPart);
-  for (const b of raw) {
-    b.rings = b.polys.flatMap((p) => [p.outer, ...p.holes]);
-    b.bbox = bboxOf(b.polys.map((p) => p.outer));
-    b.cx = (b.bbox[0] + b.bbox[2]) / 2;
-    b.cy = (b.bbox[1] + b.bbox[3]) / 2;
-  }
-  for (const p of parts) {
-    // точка внутри части: центр рамки может промахнуться для «Г»-образных — берём середину первого ребра со смещением
+  for (const p of raw) {
+    if (!p.isPart) continue;
     const probe = innerPoint(p);
     for (const o of outlines) {
       const [x0, y0, x1, y1] = o.bbox;
@@ -379,20 +347,17 @@ export function parseOSM(elements, lat0, lon0, R = 430) {
         info.src = pi.src;
       }
     }
-    buildings.push({
-      id: b.id,
-      group: b.group || b.id,
-      polys: b.polys,
-      bbox: b.bbox,
-      cx: b.cx,
-      cy: b.cy,
-      ...info,
-    });
+    buildings.push({ id: b.id, group: b.group || b.id, polys: b.polys, bbox: b.bbox, cx: b.cx, cy: b.cy, ...info });
   }
 
-  // Деревья: настоящие из OSM + посадки в парках и лесах
+  const roads = f.roads.map((r) => ({ kind: r.kind, w: r.w, bridge: r.bridge, pts: P(r.pts) }));
+  const areas = f.areas.map((a) => ({ kind: a.kind, rings: a.rings.map(P), seed: a.seed }));
+
+  // Деревья: настоящие из OSM, аллеи и посадки в парках и лесах
   const R2 = R + 40;
   const trees = [];
+  const treePts = P(f.trees);
+  for (const row of f.treeRows) sampleLine(P(row), 8, treePts);
   const pushTree = (x, y, s) => {
     if (Math.hypot(x, y) > R2 - 6) return;
     trees.push(x, y, s);
@@ -428,6 +393,10 @@ export function parseOSM(elements, lat0, lon0, R = 430) {
     areas: areas.filter((a) => a.rings.some((r) => nearDisc(r, R2 + 400))),
     trees,
   };
+}
+
+export function parseOSM(elements, lat0, lon0, R = 430) {
+  return featuresToModel(elementsToFeatures(elements), lat0, lon0, R);
 }
 
 function toFlatLoose(ids, coordOf) {

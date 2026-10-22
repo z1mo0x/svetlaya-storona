@@ -1,5 +1,6 @@
 import { Stage } from './scene.js';
-import { fetchOSM, parseOSM, makeProjection, pointInRings, LEVEL_H } from './osm.js';
+import { featuresToModel, makeProjection, pointInRings, LEVEL_H } from './osm.js';
+import { loadFeatures } from './tiles.js';
 import { Analyzer, floorZ, floorsOf, NIGHT, BLOCKED, LIT } from './insolation.js';
 import {
   sunPosition, sunVector, localToUTC, guessUtcOffset, formatOffset,
@@ -115,18 +116,19 @@ async function loadPlace(place, prefer) {
   hideFocus();
   showLoader('Загружаем дома из OpenStreetMap', 0.06);
   try {
-    const els = await fetchOSM(place.lat, place.lon, 470, {
+    const { features, source } = await loadFeatures(place.lat, place.lon, 470, {
       onProgress: (p) => token === S.load && setLoader(null, 0.1 + p * 0.7),
     });
     if (token !== S.load) return;
-    const model = parseOSM(els, place.lat, place.lon);
+    const model = featuresToModel(features, place.lat, place.lon);
+    model.source = source;
     if (!model.buildings.length) throw new Error('empty');
     setLoader(`Собрали ${model.buildings.length} ${plural(model.buildings.length, ['дом', 'дома', 'домов'])}`, 1);
     await new Promise((r) => setTimeout(r, 450));
     hideLoader();
     await applyModel(place, model);
     if (token !== S.load) return;
-    goal('place_loaded', { buildings: model.buildings.length });
+    goal('place_loaded', { buildings: model.buildings.length, source: model.source });
     const w = autoWindow(prefer);
     if (w) setWindow(w, { source: prefer?.exact ? 'link' : 'auto' });
     S.minute = sunnyMinute();

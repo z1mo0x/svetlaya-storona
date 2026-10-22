@@ -41,7 +41,7 @@ test('контур с частями не выдавливается, часть
 });
 
 test('дом-колодец: внутренний двор остаётся дырой', () => {
-  const c = byId(300);
+  const c = byId(-300); // отношения получают отрицательный id, чтобы не пересекаться с линиями
   assert.ok(c);
   assert.equal(c.polys.length, 1);
   assert.equal(c.polys[0].holes.length, 1);
