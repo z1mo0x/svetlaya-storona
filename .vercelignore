@@ -1,4 +1,8 @@
 .claude
+.github
 dist
 tools
+tests
+docs
 README.md
+CLAUDE.md

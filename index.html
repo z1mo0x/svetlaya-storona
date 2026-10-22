@@ -246,7 +246,7 @@
       </div>
       <footer class="foot wrap">
         <span class="logo logo-sm"><span class="logo-mark" aria-hidden="true"><i></i></span><span class="logo-word">Светлая сторона</span></span>
-        <p>Прототип. Данные о зданиях © участники <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (ODbL). Поиск адресов — <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a>. 3D — three.js. Расчёт ориентировочный и не является заключением по ГОСТ Р 57795-2017.</p>
+        <p>Прототип. Данные о зданиях © участники <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (ODbL). Поиск адресов — <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a>. 3D — three.js. Расчёт ориентировочный и не является заключением по ГОСТ Р 57795-2017. <a href="privacy.html">Конфиденциальность</a></p>
       </footer>
     </section>
     </div>
@@ -290,7 +290,25 @@
               </div>
             </div>
             <input type="range" id="floorRange" min="1" max="5" value="3">
+            <div class="sides" id="sides" role="radiogroup" aria-label="Сторона дома"></div>
             <p class="facing" id="facing">Окно смотрит на <b>юг</b> · 180°</p>
+          </section>
+
+          <section class="p-sec" id="outdoorSec">
+            <span class="p-label">У окна</span>
+            <div class="seg" id="outdoorSeg" role="radiogroup" aria-label="Что у окна">
+              <button type="button" role="radio" data-outdoor="none">Нет</button>
+              <button type="button" role="radio" data-outdoor="loggia">Лоджия</button>
+              <button type="button" role="radio" data-outdoor="balcony" title="Балкон этажом выше нависает над окном">Балкон выше</button>
+            </div>
+            <div class="p-row depth-row" id="depthRow" hidden>
+              <span class="p-sub">Глубина</span>
+              <div class="stepper">
+                <button type="button" data-step="depth" data-d="-1" aria-label="Мельче">−</button>
+                <output id="depthOut">1,2 м</output>
+                <button type="button" data-step="depth" data-d="1" aria-label="Глубже">+</button>
+              </div>
+            </div>
           </section>
 
           <section class="p-sec" id="levelsSec">
@@ -334,6 +352,11 @@
           </div>
 
           <div class="results" id="resultsBody">
+            <section class="verdict is-busy" id="verdict" aria-live="polite">
+              <span class="verdict-badge" id="vBadge">Считаем…</span>
+              <p class="verdict-text" id="vText">Считаем солнце на весь год</p>
+            </section>
+
             <section class="r-hero">
               <span class="p-kicker" id="rDate">8 октября</span>
               <div class="r-big"><span id="rLit">—</span></div>
@@ -373,6 +396,12 @@
             <section class="r-sec">
               <div class="r-head"><h4>Этажи этого стояка</h4><span class="micro">часов солнца в год</span></div>
               <div class="floors" id="floors"></div>
+            </section>
+
+            <section class="r-sec report-ask">
+              <p>Нужен PDF-отчёт по этой квартире — чтобы показать застройщику или продавцу?</p>
+              <button class="btn btn-sun btn-sm" id="reportBtn" type="button">Да, нужен</button>
+              <p class="p-sub" id="reportThanks" hidden>Спасибо, учли. Отчёт пока в разработке<span id="reportTg"></span>.</p>
             </section>
 
             <section class="r-sec r-actions">

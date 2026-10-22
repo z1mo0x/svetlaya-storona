@@ -5,6 +5,7 @@ import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { sunVector } from './sun.js';
+import { detectQuality, lowerTier } from './quality.js';
 
 // модель (x — восток, y — север, z — вверх) → three (y — вверх, север = −z)
 const V = (x, y, z = 0) => new THREE.Vector3(x, z, -y);
@@ -49,11 +50,12 @@ export class Stage {
     this.onHover = onHover;
     this.onPick = onPick;
     this.mobile = matchMedia('(max-width: 767px)').matches;
+    this.profile = detectQuality();
 
-    const r = (this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' }));
-    r.setPixelRatio(Math.min(devicePixelRatio, this.mobile ? 1.75 : 2));
+    const r = (this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.profile.name !== 'low', powerPreference: 'high-performance' }));
+    r.setPixelRatio(Math.min(devicePixelRatio, this.profile.dpr));
     r.shadowMap.enabled = true;
-    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.shadowMap.type = this.profile.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     r.toneMapping = THREE.NeutralToneMapping;
     r.toneMappingExposure = 1.0;
 
@@ -70,6 +72,8 @@ export class Stage {
     c.rotateSpeed = 0.6;
     c.zoomSpeed = 0.9;
     c.screenSpacePanning = false;
+    // Кадр рисуем только когда что-то изменилось: камера, время, подсветка, анимация
+    c.addEventListener('change', () => this.invalidate());
 
     this.world = new THREE.Group();
     this.overlay = new THREE.Group();
@@ -84,8 +88,13 @@ export class Stage {
     this.viewShiftY = 0;
     this.viewShiftTargetY = 0;
     this.tweens = [];
-    this.clock = new THREE.Clock();
     this.running = true;
+    this.dirty = true;
+    this.lastFrame = 0;
+    this.pulseUntil = 0;
+    this.perfSamples = [];
+    this.renders = 0;
+    this.debug = new URLSearchParams(location.search).has('debug') ? this.#debugPanel() : null;
 
     this.#initSky();
     this.#initLights();
@@ -93,7 +102,47 @@ export class Stage {
     this.#initPointer();
     this.resize();
     addEventListener('resize', () => this.resize());
-    this.renderer.setAnimationLoop(() => this.#tick());
+    document.addEventListener('visibilitychange', () => !document.hidden && this.invalidate());
+    // Ошибка в одном кадре не должна навсегда останавливать отрисовку (three.js не перезапускает цикл сам)
+    this.renderer.setAnimationLoop(() => {
+      try {
+        this.#tick();
+      } catch (e) {
+        if (!this.tickError) console.error('[3D] ошибка кадра', e);
+        this.tickError = e;
+      }
+    });
+  }
+
+  invalidate() {
+    this.dirty = true;
+  }
+
+  // Понизить качество на ходу: меньше пикселей и теней, без контуров и деревьев
+  applyProfile(p) {
+    this.profile = p;
+    const r = this.renderer;
+    r.setPixelRatio(Math.min(devicePixelRatio, p.dpr));
+    r.shadowMap.type = p.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    const sh = this.sunLight.shadow;
+    sh.mapSize.set(p.shadow, p.shadow);
+    sh.map?.dispose();
+    sh.map = null;
+    this.scene.traverse((o) => {
+      if (!o.material) return;
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.needsUpdate = true));
+    });
+    if (this.edges) this.edges.visible = p.edges;
+    if (this.trees) this.trees.visible = p.trees;
+    this.resize();
+    console.info(`[3D] качество: ${p.name}`);
+  }
+
+  #debugPanel() {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99;padding:6px 9px;border-radius:8px;background:rgba(29,23,18,.85);color:#fbf8f3;font:11px/1.4 ui-monospace,monospace;pointer-events:none;white-space:pre';
+    document.body.appendChild(el);
+    return { el, t0: performance.now(), renders: 0, ticks: 0 };
   }
 
   // ---------- Небо и свет ----------
@@ -148,7 +197,7 @@ export class Stage {
   #initLights() {
     const sun = (this.sunLight = new THREE.DirectionalLight(0xffffff, 3));
     sun.castShadow = true;
-    sun.shadow.mapSize.set(this.mobile ? 2048 : 4096, this.mobile ? 2048 : 4096);
+    sun.shadow.mapSize.set(this.profile.shadow, this.profile.shadow);
     sun.shadow.bias = -0.00025;
     sun.shadow.normalBias = 0.35;
     const s = sun.shadow.camera;
@@ -253,6 +302,23 @@ export class Stage {
   }
 
   #setLine(line, points, colors) {
+    this.invalidate();
+    const start = line.geometry.attributes.instanceStart;
+    if (!colors && points.length === 2 && start && start.data.array.length === 6) {
+      const [a, b] = points;
+      start.data.array.set([a.x, a.y, a.z, b.x, b.y, b.z]);
+      start.data.needsUpdate = true;
+      if (line.material.dashed) {
+        const ds = line.geometry.attributes.instanceDistanceStart;
+        if (ds && ds.data.array.length === 2) {
+          ds.data.array[0] = 0;
+          ds.data.array[1] = a.distanceTo(b);
+          ds.data.needsUpdate = true;
+        } else line.computeLineDistances();
+      }
+      line.visible = true;
+      return;
+    }
     const pos = [];
     for (const p of points) pos.push(p.x, p.y, p.z);
     line.geometry.dispose();
@@ -273,7 +339,7 @@ export class Stage {
     this.R2 = R2;
 
     // Подиум
-    const groundTex = await groundTexture(model, this.mobile ? 2048 : 4096);
+    const groundTex = await groundTexture(model, this.profile.ground);
     groundTex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     const top = new THREE.Mesh(
       new THREE.CircleGeometry(R2, 180).rotateX(-Math.PI / 2),
@@ -300,7 +366,8 @@ export class Stage {
     this.world.add(top, side, bottom, floorShadow);
 
     this.#buildBuildings(model);
-    this.#buildTrees(model);
+    if (this.profile.trees) this.#buildTrees(model);
+    this.invalidate();
 
     const s = this.sunLight.shadow.camera;
     const ext = R2 * 1.08;
@@ -328,7 +395,8 @@ export class Stage {
       this.world.remove(o);
     }
     this.#buildBuildings(this.model);
-    this.edges.material.opacity = 0.11;
+    if (this.edges) this.edges.material.opacity = 0.11;
+    this.invalidate();
   }
 
   #sink() {
@@ -441,6 +509,8 @@ export class Stage {
     this.world.add(mesh);
     this.#refreshAllColors();
 
+    this.edges = null;
+    if (!this.profile.edges) return;
     const eg = new THREE.EdgesGeometry(geo, 28);
     this.edges = new THREE.LineSegments(
       eg,
@@ -503,6 +573,7 @@ export class Stage {
     const attr = this.buildings.geometry.attributes.color;
     for (const i of list) this.#paint(attr, i);
     attr.needsUpdate = true;
+    this.invalidate();
   }
 
   #refreshAllColors() {
@@ -544,6 +615,7 @@ export class Stage {
     this.sunOrb.visible = altDeg > -1.5;
     this.sunOrb.position.copy(c).addScaledVector(dir, this.domeR());
     this.altDeg = altDeg;
+    this.invalidate();
     return k;
   }
 
@@ -555,8 +627,14 @@ export class Stage {
   setSunPaths(arcs) {
     for (const ch of [...this.arcGroup.children]) {
       ch.geometry?.dispose();
+      if (ch.material) {
+        const k = this.lineMats.indexOf(ch.material);
+        if (k >= 0) this.lineMats.splice(k, 1);
+        ch.material.dispose();
+      }
       this.arcGroup.remove(ch);
     }
+    this.invalidate();
     for (const [id] of this.labels) if (id.startsWith('arc')) this.removeLabel(id);
     const c = this.domeCenter || new THREE.Vector3();
     const R = this.domeR();
@@ -620,6 +698,7 @@ export class Stage {
       this.hitMark.visible = false;
       this.domeCenter = null;
       this.removeLabel('win');
+      this.invalidate();
       return;
     }
     const p = V(win.x + win.nx * 0.3, win.y + win.ny * 0.3, win.z);
@@ -630,11 +709,14 @@ export class Stage {
     this.#setLine(this.guide, [V(win.x + win.nx * 0.3, win.y + win.ny * 0.3, 0), p]);
     this.domeCenter = p.clone();
     this.addLabel('win', win.label || 'Окно', 'lbl-win', p);
+    this.pulseUntil = performance.now() + 2600;
+    this.invalidate();
   }
 
   // state: 'lit' | 'blocked' | 'behind' | 'night'
   setRay(state, hitT = 0) {
     if (!this.win || !this.sunDir || state === 'night') {
+      if (this.ray.visible || this.hitMark.visible) this.invalidate();
       this.ray.visible = this.rayGlow.visible = false;
       this.hitMark.visible = false;
       return;
@@ -655,8 +737,20 @@ export class Stage {
       m.color.set(0x9c8f80); m.linewidth = 1.4; m.dashed = true; m.opacity = 0.55;
       this.rayGlow.visible = false;
     }
-    if (m.dashed) { m.dashSize = 4; m.gapSize = 3; this.ray.computeLineDistances(); }
-    m.needsUpdate = true;
+    if (m.dashed) {
+      m.dashSize = 4;
+      m.gapSize = 3;
+      const ds = this.ray.geometry.attributes.instanceDistanceStart;
+      if (ds && ds.data.array.length === 2) {
+        ds.data.array[0] = 0;
+        ds.data.array[1] = from.distanceTo(to);
+        ds.data.needsUpdate = true;
+      } else this.ray.computeLineDistances();
+    }
+    if (m.dashed !== this.rayDashed) {
+      m.needsUpdate = true;
+      this.rayDashed = m.dashed;
+    }
     this.hitMark.visible = state === 'blocked';
     if (state === 'blocked') this.hitMark.position.copy(to);
   }
@@ -674,6 +768,7 @@ export class Stage {
     }
     l.el.innerHTML = html;
     if (pos) l.pos.copy(pos);
+    this.invalidate();
     return l;
   }
   removeLabel(id) {
@@ -715,6 +810,7 @@ export class Stage {
       c.autoRotate = false;
       this.canvas.style.touchAction = 'none';
     }
+    this.invalidate();
   }
 
   // Сдвиг картинки в пикселях: вправо (px) и вниз (py) — чтобы макет не прятался под текстом и панелями
@@ -727,6 +823,7 @@ export class Stage {
     this.controls.target.copy(target);
     this.camera.position.setFromSpherical(new THREE.Spherical(dist, polar, azim)).add(target);
     this.controls.update();
+    this.invalidate();
   }
 
   flyTo({ target, dist, polar, azim }, dur = 1800) {
@@ -822,13 +919,14 @@ export class Stage {
     this.#applyViewShift(true);
     const pr = this.renderer.getPixelRatio();
     for (const m of this.lineMats) m.resolution.set(w * pr, h * pr);
+    this.invalidate();
   }
 
   #applyViewShift(force) {
     const w = this.canvas.clientWidth || innerWidth, h = this.canvas.clientHeight || innerHeight;
     const dx = this.viewShiftTarget - this.viewShift;
     const dy = (this.viewShiftTargetY || 0) - (this.viewShiftY || 0);
-    if (!force && Math.abs(dx) < 0.3 && Math.abs(dy) < 0.3) return;
+    if (!force && Math.abs(dx) < 0.3 && Math.abs(dy) < 0.3) return false;
     const k = force ? 1 : 0.08;
     this.viewShift += dx * k;
     this.viewShiftY = (this.viewShiftY || 0) + dy * k;
@@ -839,31 +937,80 @@ export class Stage {
       this.camera.setViewOffset(w, h, -this.viewShift, -this.viewShiftY, w, h);
     }
     this.camera.updateProjectionMatrix();
+    return true;
   }
 
   #tick() {
     const now = performance.now();
-    for (const tw of [...this.tweens]) {
-      const t = Math.min(1, (now - tw.t0) / tw.dur);
-      tw.fn(tw.ease(t));
-      if (t >= 1) {
-        this.tweens.splice(this.tweens.indexOf(tw), 1);
-        tw.resolve();
+    if (this.tweens.length) {
+      for (const tw of [...this.tweens]) {
+        const t = Math.min(1, (now - tw.t0) / tw.dur);
+        tw.fn(tw.ease(t));
+        if (t >= 1) {
+          this.tweens.splice(this.tweens.indexOf(tw), 1);
+          tw.resolve();
+        }
       }
+      this.dirty = true;
     }
-    if (!this.running) return;
-    const dt = this.clock.getDelta();
+    if (!this.running || document.hidden) return;
+    // на слабых устройствах — не чаще 30 кадров в секунду
+    if (now - this.lastFrame < 1000 / this.profile.fps - 2) return;
+    const dt = Math.min(0.1, (now - (this.lastFrame || now)) / 1000);
+    this.lastFrame = now;
+    if (this.debug) this.debug.ticks++;
     this.onFrame?.(dt);
-    this.#applyViewShift(false);
+    if (this.#applyViewShift(false)) this.dirty = true;
     this.controls.update(dt);
-    this.sky.position.copy(this.camera.position);
-    const pulse = (now / 1600) % 1;
-    this.winPulse.scale.setScalar(10 + pulse * 22);
-    this.winPulse.material.opacity = 1 - pulse;
-    // Линии этажей видны только вблизи
-    this.uniforms.uLines.value = 1;
-    this.#updateLabels();
-    this.renderer.render(this.scene, this.camera);
+    if (now < this.pulseUntil && this.winMarker.visible) {
+      const pulse = ((now - this.pulseUntil) / 1300) % 1 + 1;
+      this.winPulse.visible = true;
+      this.winPulse.scale.setScalar(10 + (pulse % 1) * 22);
+      this.winPulse.material.opacity = 1 - (pulse % 1);
+      this.dirty = true;
+    } else if (this.winPulse.visible) {
+      this.winPulse.visible = false;
+      this.dirty = true;
+    }
+    if (this.dirty) {
+      this.dirty = false;
+      this.sky.position.copy(this.camera.position);
+      this.#updateLabels();
+      this.renderer.render(this.scene, this.camera);
+      this.renders++;
+      this.#watchPerf(now);
+    }
+    if (this.debug) this.#debugStats(now);
+  }
+
+  // Если кадры при непрерывной анимации идут медленнее ~22 в секунду — понижаем качество.
+  // Порог выше 33 мс, чтобы не реагировать на режим экономии батареи, где браузер сам держит 30 кадров/с
+  #watchPerf(now) {
+    const gap = now - (this.prevRender || now);
+    this.prevRender = now;
+    if (this.profile.forced || gap <= 0 || gap > 200) {
+      this.perfSamples.length = 0;
+      return;
+    }
+    this.perfSamples.push(gap);
+    if (this.perfSamples.length < 90) return;
+    const avg = this.perfSamples.reduce((a, b) => a + b, 0) / this.perfSamples.length;
+    this.perfSamples.length = 0;
+    if (avg > Math.max(45, (1000 / this.profile.fps) * 2)) {
+      const next = lowerTier(this.profile);
+      if (next) this.applyProfile(next);
+    }
+  }
+
+  #debugStats(now) {
+    const d = this.debug;
+    const span = now - d.t0;
+    if (span < 1000) return;
+    const fps = ((this.renders - d.renders) * 1000) / span;
+    d.el.textContent = `качество ${this.profile.name}${this.profile.forced ? ' (вручную)' : ''} · DPR ${this.renderer.getPixelRatio()}\n`
+      + `кадров/с ${fps.toFixed(0)} · всего ${this.renders}\n${this.profile.gpu || ''}`.slice(0, 160);
+    d.t0 = now;
+    d.renders = this.renders;
   }
 }
 

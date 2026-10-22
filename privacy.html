@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Конфиденциальность — Светлая сторона</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500&family=Manrope:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .doc { max-width: 720px; margin: 0 auto; padding: 72px var(--gutter) 96px; }
+    .doc h1 { margin: 24px 0 28px; font: 400 clamp(40px, 6vw, 64px)/1 var(--serif); letter-spacing: -0.02em; }
+    .doc h2 { margin: 36px 0 10px; font: 500 26px/1.1 var(--serif); }
+    .doc p, .doc li { font-size: 16px; line-height: 1.7; color: var(--ink-2); }
+    .doc a { color: var(--sun-deep); }
+  </style>
+</head>
+<body>
+  <main class="doc">
+    <a class="logo" href="./"><span class="logo-mark" aria-hidden="true"><i></i></span><span class="logo-word">Светлая сторона</span></a>
+    <h1>Конфиденциальность</h1>
+    <p>«Светлая сторона» — некоммерческий демо-проект. Аккаунтов нет, своих серверов, где хранились бы ваши данные, тоже нет. Весь расчёт солнца идёт в вашем браузере.</p>
+
+    <h2>Что уходит в сторонние сервисы</h2>
+    <ul>
+      <li><b>Адрес, который вы ищете</b>, отправляется в геокодер <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a> (komoot), чтобы найти координаты.</li>
+      <li><b>Координаты квартала</b> отправляются в открытый API <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>, чтобы загрузить контуры домов.</li>
+      <li>Если на сайте включена <b>Яндекс Метрика</b>, она получает обезличенную статистику посещений с помощью cookies: какие страницы открывали, какие кнопки нажимали, тип устройства и браузера. Мы смотрим только обобщённые цифры, чтобы понять, полезен ли сервис. Правила обработки данных Метрикой — в <a href="https://yandex.ru/legal/confidential/" target="_blank" rel="noopener">политике конфиденциальности Яндекса</a>.</li>
+    </ul>
+
+    <h2>Ссылка на окно</h2>
+    <p>Кнопка «Скопировать ссылку на окно» кладёт координаты квартала и окна в адрес страницы. Ссылка никуда не отправляется — вы сами решаете, кому её дать.</p>
+
+    <h2>Как отказаться</h2>
+    <p>Можно запретить cookies в настройках браузера или установить <a href="https://yandex.ru/support/metrica/general/opt-out.html" target="_blank" rel="noopener">блокировщик Метрики</a>. Сайт продолжит работать.</p>
+
+    <p><a href="./">← На главную</a></p>
+  </main>
+</body>
+</html>

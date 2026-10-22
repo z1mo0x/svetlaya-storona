@@ -6,6 +6,9 @@ import {
   MONTHS_GEN, dayOfYear, dateFromDoy, fmtTime, fmtDur,
 } from './sun.js';
 import { suggest } from './geocode.js';
+import { Calc } from './calc.js';
+import { initAnalytics, goal } from './analytics.js';
+import { CONFIG } from './config.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -29,6 +32,8 @@ const TYPE_NAMES = {
   roof: 'навес', parking: 'паркинг', yes: 'здание',
 };
 const DIRS = ['север', 'северо-восток', 'восток', 'юго-восток', 'юг', 'юго-запад', 'запад', 'северо-запад'];
+const DIRS_SHORT = ['С', 'СВ', 'В', 'ЮВ', 'Ю', 'ЮЗ', 'З', 'СЗ'];
+const OUTDOOR_CODES = ['none', 'loggia', 'balcony'];
 const STATE_COLORS = ['#2b2b3d', '#e6ddcf', '#9aa6c0', '#f2a447'];
 
 history.scrollRestoration = 'manual';
@@ -53,12 +58,19 @@ const S = {
   load: 0,
   heroVisible: true,
   last: {},
+  outdoor: 'none', // что у окна: ничего, лоджия или балкон этажом выше — запоминаем между окнами
+  depth: 1.2,
+  maxHours: null,
 };
 
 // ---------- Сцена ----------
 const stage = new Stage($('#gl'), $('#labels'), { onHover, onPick });
 stage.onFrame = frame;
 stage.setMode('landing');
+// год солнца и этажи считаются в фоне, чтобы интерфейс не подвисал
+const calc = new Calc();
+// ?debug=1 — доступ к состоянию из консоли разработчика
+if (new URLSearchParams(location.search).has('debug')) window.__app = { stage, S, calc };
 
 function frame(dt) {
   if (!S.model) return;
@@ -83,6 +95,13 @@ async function applyModel(place, model) {
   const tz = guessUtcOffset(place.lat, place.lon, place.region || '', place.country || '');
   S.tz = tz.offset;
   S.tzExact = tz.exact;
+  calc.setModel(model);
+  S.maxHours = null;
+  calc.max(S.date.y, S.tz).then((h) => {
+    if (S.model !== model) return;
+    S.maxHours = h;
+    renderVerdict();
+  });
   $('#placeName').textContent = place.title;
   $('#tzName').textContent = formatOffset(S.tz) + (S.tzExact ? '' : ' ≈');
   clearWindow();
@@ -107,8 +126,9 @@ async function loadPlace(place, prefer) {
     hideLoader();
     await applyModel(place, model);
     if (token !== S.load) return;
+    goal('place_loaded', { buildings: model.buildings.length });
     const w = autoWindow(prefer);
-    if (w) setWindow(w);
+    if (w) setWindow(w, { source: prefer?.exact ? 'link' : 'auto' });
     S.minute = sunnyMinute();
     updateTime();
     flyToWindow(1, 2400);
@@ -120,6 +140,7 @@ async function loadPlace(place, prefer) {
       empty: 'Здесь нет зданий в OpenStreetMap — попробуйте другой адрес',
       rate: 'OpenStreetMap временно ограничил частоту запросов. Подождите минуту и попробуйте снова.',
     }[e.message] || 'Не удалось загрузить дома из OpenStreetMap. Проверьте соединение и попробуйте ещё раз.';
+    goal('place_error', { reason: e.message });
     toast(msg, 5200);
   }
 }
@@ -174,11 +195,14 @@ function autoWindow(prefer) {
 }
 
 // ---------- Окно ----------
-function setWindow(w, { fly = false } = {}) {
+function setWindow(w, { fly = false, source } = {}) {
   const b = S.model.buildings[w.i];
   const [lo, hi, fh] = floorRange(b);
   const L = Math.hypot(w.nx, w.ny) || 1;
-  const win = { ...w, nx: w.nx / L, ny: w.ny / L, floor: clamp(Math.round(w.floor), lo, hi), lo, hi, fh, group: b.group };
+  const win = {
+    ...w, nx: w.nx / L, ny: w.ny / L, floor: clamp(Math.round(w.floor), lo, hi), lo, hi, fh, group: b.group,
+    outdoor: w.outdoor ?? S.outdoor, depth: w.depth ?? S.depth,
+  };
   win.z = floorZ(win.floor, fh);
   S.win = win;
   body.classList.add('has-win');
@@ -188,12 +212,59 @@ function setWindow(w, { fly = false } = {}) {
   recompute(true);
   checkEdge();
   updateHash();
+  if (source) goal('window_set', { source });
   if (fly) flyToWindow();
+}
+
+// Стороны дома: самая длинная стена в каждом из 8 направлений — выбор окна без клика по 3D
+function sidesOf(i) {
+  const b = S.model.buildings[i];
+  const best = new Map();
+  for (const p of b.polys) {
+    const r = p.outer;
+    for (let k = 0; k < r.length; k += 2) {
+      const ax = r[k], ay = r[k + 1], bx = r[(k + 2) % r.length], by = r[(k + 3) % r.length];
+      const L = Math.hypot(bx - ax, by - ay);
+      if (L < 4) continue;
+      let nx = (by - ay) / L, ny = -(bx - ax) / L;
+      const mx = (ax + bx) / 2, my = (ay + by) / 2;
+      if (pointInRings(mx + nx, my + ny, [r])) { nx = -nx; ny = -ny; }
+      const az = ((Math.atan2(nx, ny) * 180) / Math.PI + 360) % 360;
+      const sector = Math.round(az / 45) % 8;
+      if (!best.has(sector) || best.get(sector).L < L) best.set(sector, { sector, L, x: mx, y: my, nx, ny });
+    }
+  }
+  return [...best.values()].sort((a, c) => a.sector - c.sector);
+}
+
+function sectorOf(nx, ny) {
+  return Math.round((((Math.atan2(nx, ny) * 180) / Math.PI + 360) % 360) / 45) % 8;
+}
+
+function setSide(sector) {
+  if (!S.win) return;
+  const side = sidesOf(S.win.i).find((x) => x.sector === sector);
+  if (!side) return;
+  setWindow({ ...S.win, x: side.x, y: side.y, nx: side.nx, ny: side.ny }, { source: 'side' });
+}
+
+function setOutdoor(kind, depth = S.depth) {
+  S.outdoor = kind;
+  S.depth = clamp(Math.round(depth * 10) / 10, 0.6, 2.4);
+  if (!S.win) return renderWindowPanel();
+  S.win.outdoor = S.outdoor;
+  S.win.depth = S.depth;
+  renderWindowPanel();
+  recompute(true);
+  updateTime();
+  updateHash();
+  goal('outdoor_change', { kind, depth: S.depth });
 }
 
 function clearWindow() {
   S.win = null;
   S.yr = S.norm = null;
+  S.floors = null;
   body.classList.remove('has-win');
   stage.setWindow(null);
   stage.setTint('target', null);
@@ -224,6 +295,7 @@ function setBuildingLevels(i, levels) {
   b.src = 'user';
   S.an.items[i].h = b.h;
   S.an.heights[i] = b.h;
+  calc.setHeight(i, b.h);
   stage.rebuildBuildings();
   if (S.win) setWindow({ ...S.win });
   if (!$('#focusCard').hidden && S.focus === i) renderFocus(i);
@@ -239,21 +311,60 @@ function recompute(withFloors) {
   if (!S.win) return;
   const token = ++S.calc;
   const y = S.date.y;
-  S.yr = S.an.year(S.win, y, S.tz, 10, 1);
   S.norm = S.an.norm(S.win, y, S.tz);
-  renderYear();
   renderNorm();
-  renderBlockers();
   updateDate();
+  $('#verdict').classList.add('is-busy');
+  calc.year(S.win, y, S.tz, 10, 1).then((yr) => {
+    if (token !== S.calc) return;
+    S.yr = yr;
+    renderYear();
+    renderBlockers();
+    renderVerdict();
+    drawHeat($('#heat'), S.yr, dayOfYear(y, S.date.m, S.date.d));
+    if (S.onYear) {
+      const f = S.onYear;
+      S.onYear = null;
+      f();
+    }
+  }).catch((e) => console.error(e));
   if (withFloors) {
     S.floors = null;
     renderFloors([]);
-    S.an.floors(S.win, y, S.tz, (arr) => {
+    calc.floors(S.win, y, S.tz, (arr) => {
       if (token !== S.calc) return;
       S.floors = arr;
       renderFloors(arr);
-    }, () => token !== S.calc);
+    }).then((arr) => {
+      if (arr && token === S.calc) {
+        S.floors = arr;
+        renderFloors(arr);
+      }
+    }).catch((e) => console.error(e));
   } else renderFloors(S.floors || []);
+}
+
+// Главный ответ: насколько солнечно и сколько забирают соседи
+function renderVerdict() {
+  const box = $('#verdict');
+  if (!S.yr || !S.win) return;
+  box.classList.remove('is-busy');
+  const hours = S.yr.litHours;
+  const ratio = S.maxHours ? hours / S.maxHours : null;
+  const level = ratio == null ? 'mid' : ratio >= 0.55 ? 'sunny' : ratio >= 0.3 ? 'mid' : 'low';
+  box.dataset.level = level;
+  $('#vBadge').textContent = { sunny: 'Солнечно', mid: 'Средне', low: 'Мало солнца' }[level];
+  const h = Math.round(hours).toLocaleString('ru-RU');
+  let t = `<b>${h} ч</b> прямого солнца в год`;
+  if (ratio != null) t += ` — ${Math.round(ratio * 100)}% от лучшего на этой широте (южное окно без соседей).`;
+  else t += '.';
+  const lost = S.yr.lost;
+  t += lost >= 0.05
+    ? ` Соседние дома забирают <b>${Math.round(lost * 100)}%</b> солнца, которое могло бы попасть в окно.`
+    : ' Соседние дома почти не мешают.';
+  if (S.win.outdoor === 'loggia') t += ' С учётом лоджии.';
+  if (S.win.outdoor === 'balcony') t += ' С учётом балкона сверху.';
+  $('#vText').innerHTML = t;
 }
 
 function daySunOnly(y, m, d) {
@@ -377,6 +488,7 @@ function renderWindowPanel() {
   const w = S.win;
   $('#floorSec').style.display = w ? '' : 'none';
   $('#levelsSec').style.display = w ? '' : 'none';
+  $('#outdoorSec').style.display = w ? '' : 'none';
   if (!w) {
     $('#winTitle').textContent = 'Кликните по стене дома';
     $('#winSub').textContent = 'там, где находится ваше окно';
@@ -396,6 +508,17 @@ function renderWindowPanel() {
   fillRange(fr);
   const az = ((Math.atan2(w.nx, w.ny) * 180) / Math.PI + 360) % 360;
   $('#facing').innerHTML = `Окно смотрит на <b>${DIRS[Math.round(az / 45) % 8]}</b> · ${Math.round(az)}°`;
+  const cur = sectorOf(w.nx, w.ny);
+  const sides = sidesOf(w.i);
+  $('#sides').innerHTML = sides.map((x) => `<button type="button" role="radio" data-sector="${x.sector}" aria-checked="${x.sector === cur}" class="${x.sector === cur ? 'active' : ''}" title="Окно на ${DIRS[x.sector]}">${DIRS_SHORT[x.sector]}</button>`).join('');
+  $('#sides').hidden = sides.length < 2;
+  $$('#outdoorSeg button').forEach((x) => {
+    const on = x.dataset.outdoor === w.outdoor;
+    x.classList.toggle('active', on);
+    x.setAttribute('aria-checked', String(on));
+  });
+  $('#depthRow').hidden = w.outdoor === 'none';
+  $('#depthOut').textContent = `${String(w.depth.toFixed(1)).replace('.', ',')} м`;
   const parts = stage.groups.get(b.group)?.length || 1;
   const tag = $('#levelsTag');
   $('#levelsOut').textContent = b.levels;
@@ -438,7 +561,10 @@ function renderNorm() {
   let t = `Расчётный день — ${date}, ${zone} зона: нужно <b>${fmtDur(n.need)}</b> подряд. У окна — <b>${fmtDur(n.longest)}</b> непрерывно`;
   t += n.parts.length > 1 ? `, всего <b>${fmtDur(n.total)}</b>.` : '.';
   if (n.mode === 'broken') t += ' Засчитано как прерывистая инсоляция.';
-  t += ' Первый и последний час после восхода и перед закатом не учитываются.';
+  t += n.cut === 90
+    ? ' Полтора часа после восхода и перед закатом не учитываются (ГОСТ Р 57795-2017).'
+    : ' Первый час после восхода и последний перед закатом не учитываются (ГОСТ Р 57795-2017).';
+  if (S.win?.outdoor && S.win.outdoor !== 'none') t += ' Учтена лоджия или балкон: они закрывают часть солнца.';
   $('#normText').innerHTML = t;
 }
 
@@ -606,7 +732,7 @@ function onPick(hit, e) {
     const b = S.model.buildings[hit.i];
     const [lo, hi, fh] = floorRange(b);
     const floor = clamp(Math.floor(hit.z / fh) + 1, lo, hi);
-    setWindow({ i: hit.i, x: hit.x, y: hit.y, nx: hit.nx, ny: hit.ny, floor });
+    setWindow({ i: hit.i, x: hit.x, y: hit.y, nx: hit.nx, ny: hit.ny, floor }, { source: 'wall' });
   } else {
     showFocus(hit.i, e.clientX, e.clientY);
   }
@@ -783,6 +909,7 @@ function initSearch(form) {
     }
   };
   const choose = (it) => {
+    goal('search', { house: it.isHouse });
     input.value = it.title;
     input.blur();
     close();
@@ -830,7 +957,10 @@ function updateHash() {
   if (S.mode !== 'app' || !S.model) return;
   const p = new URLSearchParams();
   p.set('p', `${S.model.lat.toFixed(5)},${S.model.lon.toFixed(5)}`);
-  if (S.win) p.set('w', [S.win.x, S.win.y, S.win.nx, S.win.ny].map((v) => v.toFixed(2)).join(',') + `,${S.win.floor}`);
+  if (S.win) {
+    const o = Math.max(0, OUTDOOR_CODES.indexOf(S.win.outdoor));
+    p.set('w', [S.win.x, S.win.y, S.win.nx, S.win.ny].map((v) => v.toFixed(2)).join(',') + `,${S.win.floor},${o},${S.win.depth}`);
+  }
   p.set('n', S.place?.title || '');
   history.replaceState(null, '', `#${p}`);
 }
@@ -841,13 +971,18 @@ async function openFromHash() {
   const [lat, lon] = p.get('p').split(',').map(Number);
   if (!isFinite(lat) || !isFinite(lon)) return false;
   const w = (p.get('w') || '').split(',').map(Number);
-  const prefer = w.length === 5 && w.every(isFinite) ? { exact: true, x: w[0], y: w[1], nx: w[2], ny: w[3], floor: w[4] } : null;
+  const ok = (w.length === 5 || w.length === 7) && w.every(isFinite);
+  const prefer = ok ? { exact: true, x: w[0], y: w[1], nx: w[2], ny: w[3], floor: w[4] } : null;
+  if (ok && w.length === 7) {
+    S.outdoor = OUTDOOR_CODES[w[5]] || 'none';
+    S.depth = clamp(w[6], 0.6, 2.4);
+  }
   enterApp();
   const isDemo = Math.abs(lat - PLACES.demo.lat) < 1e-4 && Math.abs(lon - PLACES.demo.lon) < 1e-4;
   if (isDemo) {
     if (prefer) {
       const win = autoWindow(prefer);
-      if (win) setWindow(win);
+      if (win) setWindow(win, { source: 'link' });
     }
     flyToWindow();
   } else {
@@ -922,8 +1057,12 @@ function setPlaying(on) {
 
 function initControls() {
   $$('[data-search]').forEach(initSearch);
-  $$('[data-open-app]').forEach((b) => b.addEventListener('click', openDemoApp));
+  $$('[data-open-app]').forEach((b) => b.addEventListener('click', () => {
+    goal('open_app');
+    openDemoApp();
+  }));
   $$('[data-place]').forEach((b) => b.addEventListener('click', () => {
+    goal('quick_place', { place: b.dataset.place });
     const p = PLACES[b.dataset.place];
     if (p.demo) openDemoApp();
     else { enterApp(); loadPlace(p); }
@@ -975,12 +1114,29 @@ function initControls() {
   // этаж и этажность
   const fr = $('#floorRange');
   fr.addEventListener('input', () => setFloor(+fr.value));
+  fr.addEventListener('change', () => goal('floor_change'));
   $$('[data-step]').forEach((b) => b.addEventListener('click', () => {
     const d = +b.dataset.d;
     if (b.dataset.step === 'floor' && S.win) setFloor(S.win.floor + d);
     if (b.dataset.step === 'levels' && S.win) setBuildingLevels(S.win.i, S.model.buildings[S.win.i].levels + d);
     if (b.dataset.step === 'focus' && S.focus != null) setBuildingLevels(S.focus, S.model.buildings[S.focus].levels + d);
+    if (b.dataset.step === 'depth') setOutdoor(S.outdoor, S.depth + d * 0.1);
   }));
+  $('#sides').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sector]');
+    if (b) setSide(+b.dataset.sector);
+  });
+  $$('#outdoorSeg button').forEach((b) => b.addEventListener('click', () => setOutdoor(b.dataset.outdoor)));
+
+  // Проверка интереса к отчёту: без оплаты, просто считаем, сколько людям это нужно
+  $('#reportBtn').addEventListener('click', () => {
+    goal('report_interest', { floor: S.win?.floor, verdict: $('#verdict').dataset.level });
+    $('#reportBtn').hidden = true;
+    $('#reportThanks').hidden = false;
+    if (CONFIG.telegramUrl) {
+      $('#reportTg').innerHTML = `. Новости — в <a href="${CONFIG.telegramUrl}" target="_blank" rel="noopener">Telegram-канале</a>`;
+    }
+  });
   $('#focusClose').addEventListener('click', hideFocus);
 
   // календарь: клик — перейти к дате и времени
@@ -1020,6 +1176,7 @@ function initControls() {
 
   $('#shareBtn').addEventListener('click', async () => {
     updateHash();
+    goal('share_link');
     try {
       await navigator.clipboard.writeText(location.href);
       toast('Ссылка на окно скопирована');
@@ -1091,6 +1248,7 @@ function hideLoader() { $('#loader').classList.remove('show'); }
 
 // ---------- Старт ----------
 async function boot() {
+  initAnalytics();
   initControls();
   initReveal();
   stage.setViewShift(...landingShift());
@@ -1100,9 +1258,9 @@ async function boot() {
     await applyModel(PLACES.demo, model);
     const w = demoWindow();
     S.demoWin = w;
+    S.onYear = computeLandingStats;
     setWindow(w);
     S.minute = (S.day?.sunrise ?? 420) + 60;
-    computeLandingStats();
   } catch (e) {
     console.error(e);
     toast('Не удалось загрузить демо-квартал');

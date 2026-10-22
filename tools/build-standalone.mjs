@@ -6,7 +6,8 @@ const root = new URL('../', import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), 'utf8');
 
 // Порядок важен: модуль идёт после тех, от кого зависит
-const MODULES = ['sun', 'osm', 'insolation', 'geocode', 'scene', 'main'];
+// Воркер в один файл не встраивается — без него расчёт идёт в основном потоке (см. js/calc.js)
+const MODULES = ['sun', 'osm', 'insolation', 'geocode', 'quality', 'config', 'analytics', 'calc', 'scene', 'main'];
 
 const threeImports = new Set();
 const parts = [];
