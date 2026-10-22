@@ -3,6 +3,7 @@ import { Analyzer } from './insolation.js';
 
 let an = null;
 let floorsJob = 0;
+let matrixJob = 0;
 
 self.onmessage = async ({ data: m }) => {
   try {
@@ -22,6 +23,15 @@ self.onmessage = async ({ data: m }) => {
       case 'max':
         self.postMessage({ id: m.id, result: an.maxYear(m.y, m.tz) });
         return;
+      case 'matrix': {
+        // новая матрица отменяет предыдущую
+        const job = ++matrixJob;
+        const out = await an.matrix(m.base, m.sides, m.floors, m.y, m.tz,
+          (cells) => job === matrixJob && self.postMessage({ id: m.id, progress: cells }),
+          () => job !== matrixJob);
+        self.postMessage({ id: m.id, result: out });
+        return;
+      }
       case 'floors': {
         // новый запрос этажей отменяет предыдущий
         const job = ++floorsJob;

@@ -41,6 +41,10 @@ export class Calc {
     return this.#call({ type: 'max', y, tz });
   }
 
+  matrix(base, sides, floors, y, tz, onProgress) {
+    return this.#call({ type: 'matrix', base: plain(base), sides, floors, y, tz }, onProgress);
+  }
+
   floors(win, y, tz, onProgress) {
     return this.#call({ type: 'floors', win: plain(win), y, tz }, onProgress);
   }
@@ -82,6 +86,7 @@ export class Calc {
       if (msg.type === 'year') result = this.local.year(msg.win, msg.y, msg.tz, msg.step, msg.dayStep);
       else if (msg.type === 'max') result = this.local.maxYear(msg.y, msg.tz);
       else if (msg.type === 'floors') result = await this.local.floors(msg.win, msg.y, msg.tz, p.onProgress);
+      else if (msg.type === 'matrix') result = await this.local.matrix(msg.base, msg.sides, msg.floors, msg.y, msg.tz, p.onProgress);
       this.pending.delete(id);
       p.resolve(result);
     } catch (e) {

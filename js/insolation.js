@@ -187,6 +187,26 @@ export class Analyzer {
     return { zone, need, date, cut, total, longest, pass, mode, parts };
   }
 
+  // Ячейка матрицы дома: часы прямого солнца в год (каждые 4 дня, шаг 15 мин) и норма
+  cell(win, y, tz) {
+    return { hours: this.year(win, y, tz, 15, 4).litHours, pass: this.norm(win, y, tz).pass };
+  }
+
+  // Матрица «стороны × этажи»: cells приходят построчно через onRow
+  async matrix(base, sides, floors, y, tz, onRow, isStale) {
+    const out = [];
+    for (const floor of floors) {
+      if (isStale?.()) return null;
+      for (const s of sides) {
+        const w = { ...base, x: s.x, y: s.y, nx: s.nx, ny: s.ny, floor, z: floorZ(floor, base.fh) };
+        out.push({ sector: s.sector, floor, ...this.cell(w, y, tz) });
+      }
+      onRow?.(out);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    return out;
+  }
+
   // Сравнение этажей: часов прямого солнца в год (по отсчётам каждые 4 дня)
   async floors(winIn, y, tz, onFloor, isStale) {
     const out = [];

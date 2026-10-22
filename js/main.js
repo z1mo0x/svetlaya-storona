@@ -54,7 +54,9 @@ const S = {
   day: null,
   yr: null,
   norm: null,
-  floors: null,
+  matrix: null,
+  matrixKey: null,
+  matrixJob: 0,
   calc: 0,
   load: 0,
   heroVisible: true,
@@ -112,6 +114,7 @@ async function applyModel(place, model) {
 
 async function loadPlace(place, prefer) {
   const token = ++S.load;
+  if (S.drawing) stopDraw();
   setPlaying(false);
   hideFocus();
   showLoader('Загружаем дома из OpenStreetMap', 0.06);
@@ -128,6 +131,7 @@ async function loadPlace(place, prefer) {
     hideLoader();
     await applyModel(place, model);
     if (token !== S.load) return;
+    if (place.added?.length) addBuildings(place.added);
     goal('place_loaded', { buildings: model.buildings.length, source: model.source });
     const w = autoWindow(prefer);
     if (w) setWindow(w, { source: prefer?.exact ? 'link' : 'auto' });
@@ -211,7 +215,7 @@ function setWindow(w, { fly = false, source } = {}) {
   stage.setTint('target', b.group);
   stage.setWindow({ ...win, label: `${win.floor} этаж` });
   renderWindowPanel();
-  recompute(true);
+  recompute();
   checkEdge();
   updateHash();
   if (source) goal('window_set', { source });
@@ -257,7 +261,7 @@ function setOutdoor(kind, depth = S.depth) {
   S.win.outdoor = S.outdoor;
   S.win.depth = S.depth;
   renderWindowPanel();
-  recompute(true);
+  recompute();
   updateTime();
   updateHash();
   goal('outdoor_change', { kind, depth: S.depth });
@@ -266,7 +270,8 @@ function setOutdoor(kind, depth = S.depth) {
 function clearWindow() {
   S.win = null;
   S.yr = S.norm = null;
-  S.floors = null;
+  S.matrix = null;
+  S.matrixKey = null;
   body.classList.remove('has-win');
   stage.setWindow(null);
   stage.setTint('target', null);
@@ -283,7 +288,7 @@ function setFloor(f) {
   S.win.z = floorZ(f, S.win.fh);
   stage.setWindow({ ...S.win, label: `${f} этаж` });
   renderWindowPanel();
-  recompute(false);
+  recompute();
   updateHash();
 }
 
@@ -298,8 +303,10 @@ function setBuildingLevels(i, levels) {
   S.an.items[i].h = b.h;
   S.an.heights[i] = b.h;
   calc.setHeight(i, b.h);
+  S.matrixKey = null;
   stage.rebuildBuildings();
   if (S.win) setWindow({ ...S.win });
+  else updateHash();
   if (!$('#focusCard').hidden && S.focus === i) renderFocus(i);
 }
 
@@ -309,7 +316,7 @@ function checkEdge() {
 }
 
 // ---------- Расчёты ----------
-function recompute(withFloors) {
+function recompute() {
   if (!S.win) return;
   const token = ++S.calc;
   const y = S.date.y;
@@ -330,20 +337,7 @@ function recompute(withFloors) {
       f();
     }
   }).catch((e) => console.error(e));
-  if (withFloors) {
-    S.floors = null;
-    renderFloors([]);
-    calc.floors(S.win, y, S.tz, (arr) => {
-      if (token !== S.calc) return;
-      S.floors = arr;
-      renderFloors(arr);
-    }).then((arr) => {
-      if (arr && token === S.calc) {
-        S.floors = arr;
-        renderFloors(arr);
-      }
-    }).catch((e) => console.error(e));
-  } else renderFloors(S.floors || []);
+  updateMatrix();
 }
 
 // Главный ответ: насколько солнечно и сколько забирают соседи
@@ -596,22 +590,53 @@ function renderBlockers() {
   }).join('');
 }
 
-function renderFloors(arr) {
-  const box = $('#floors');
+// Матрица дома «этажи × стороны»: пересчитывается только при смене дома, лоджии или года
+function updateMatrix() {
   if (!S.win) return;
-  const n = S.win.hi - S.win.lo + 1;
-  const max = Math.max(1, ...arr.map((a) => a.hours));
-  const every = n > 40 ? 10 : n > 20 ? 5 : n > 10 ? 2 : 1;
-  let html = '';
-  for (let f = S.win.lo; f <= S.win.hi; f++) {
-    const a = arr.find((x) => x.floor === f);
-    const v = a ? Math.max(0.03, a.hours / max) : 0.03;
-    const label = f === S.win.lo || f === S.win.hi || f % every === 0 ? `<span>${f}</span>` : '';
-    html += `<button type="button" data-floor="${f}" class="${f === S.win.floor ? 'cur' : ''}" aria-label="${f} этаж${a ? `, ${Math.round(a.hours)} часов солнца в год` : ''}"><i style="--v:${v.toFixed(3)}"></i>${label}</button>`;
+  const key = `${S.win.i}|${S.win.outdoor}|${S.win.depth}|${S.date.y}`;
+  if (S.matrixKey === key) return renderMatrix();
+  S.matrixKey = key;
+  const sides = sidesOf(S.win.i).map(({ sector, x, y, nx, ny }) => ({ sector, x, y, nx, ny }));
+  S.matrix = { sides, floors: matrixFloors(S.win.lo, S.win.hi), cells: [] };
+  renderMatrix();
+  const job = ++S.matrixJob;
+  const apply = (cells) => {
+    if (!cells || job !== S.matrixJob) return;
+    S.matrix.cells = cells;
+    renderMatrix();
+  };
+  calc.matrix(S.win, sides, S.matrix.floors, S.date.y, S.tz, apply).then(apply).catch((e) => console.error(e));
+}
+
+// Сверху вниз; у высоток — не больше 30 строк
+function matrixFloors(lo, hi) {
+  const k = Math.ceil((hi - lo + 1) / 30);
+  const out = [];
+  for (let f = hi; f >= lo; f -= k) out.push(f);
+  if (out[out.length - 1] !== lo) out.push(lo);
+  return out;
+}
+
+function renderMatrix() {
+  const m = S.matrix;
+  if (!m || !S.win) return;
+  const cur = sectorOf(S.win.nx, S.win.ny);
+  const max = Math.max(1, ...m.cells.map((c) => c.hours));
+  const cells = new Map(m.cells.map((c) => [`${c.sector}|${c.floor}`, c]));
+  let html = `<table><thead><tr><th scope="col"><span class="sr">Этаж</span></th>${m.sides.map((s) => `<th scope="col" title="Окна на ${DIRS[s.sector]}">${DIRS_SHORT[s.sector]}</th>`).join('')}</tr></thead><tbody>`;
+  for (const f of m.floors) {
+    html += `<tr><th scope="row">${f}</th>`;
+    for (const s of m.sides) {
+      const c = cells.get(`${s.sector}|${f}`);
+      const cls = [s.sector === cur && f === S.win.floor ? 'cur' : '', c ? (c.pass ? 'pass' : '') : 'wait'].filter(Boolean).join(' ');
+      const label = c ? `${f} этаж, окна на ${DIRS[s.sector]}: ${Math.round(c.hours)} ч солнца в год${c.pass ? ', норма выполняется' : ''}` : `${f} этаж, окна на ${DIRS[s.sector]}: считаем`;
+      html += `<td class="${cls}"${c ? ` style="--v:${(c.hours / max).toFixed(3)}"` : ''}><button type="button" data-sector="${s.sector}" data-floor="${f}" aria-label="${label}">${c ? Math.round(c.hours) : '·'}</button></td>`;
+    }
+    html += '</tr>';
   }
-  const cur = arr.find((x) => x.floor === S.win.floor);
-  html += `<span class="floors-tip">${cur ? `${S.win.floor} этаж — ${Math.round(cur.hours).toLocaleString('ru-RU')} ч` : arr.length < n ? 'считаем…' : ''}</span>`;
-  box.innerHTML = html;
+  $('#matrix').innerHTML = `${html}</tbody></table>`;
+  const total = m.sides.length * m.floors.length;
+  setText('#matrixState', m.cells.length < total ? `считаем… ${Math.round((m.cells.length / total) * 100)}%` : 'часов солнца в год');
 }
 
 function groupLevels(g) {
@@ -710,6 +735,11 @@ function drawTrack(cv, day) {
 // ---------- Указатель ----------
 function onHover(hit, e) {
   const tip = $('#tip');
+  if (S.drawing) {
+    stage.setTint('hover', null);
+    tip.classList.remove('show');
+    return;
+  }
   if (!hit || !S.model) {
     stage.setTint('hover', null);
     tip.classList.remove('show');
@@ -728,6 +758,7 @@ function onHover(hit, e) {
 }
 
 function onPick(hit, e) {
+  if (S.drawing) return drawClick(e);
   hideFocus();
   if (!hit) return;
   if (hit.wall) {
@@ -753,15 +784,127 @@ function showFocus(i, x, y) {
 function renderFocus(i) {
   const b = S.model.buildings[i];
   const parts = stage.groups.get(b.group)?.length || 1;
-  $('#focusKind').textContent = capital(TYPE_NAMES[b.type] || 'здание');
+  $('#focusKind').textContent = b.added ? 'Добавлен вами' : capital(TYPE_NAMES[b.type] || 'здание');
+  $('#focusDelete').hidden = !b.added;
   $('#focusTitle').textContent = b.name || b.addr || 'Без адреса';
   $('#focusOut').textContent = parts > 1 ? groupLevels(b.group) : b.levels;
   $$('#focusCard .stepper button').forEach((x) => (x.disabled = parts > 1));
-  $('#focusNote').textContent = parts > 1
+  $('#focusNote').textContent = b.added
+    ? 'Нарисован вручную — укажите этажность. Расчёт учитывает его сразу.'
+    : parts > 1
     ? `Сложное здание из ${parts} частей — высоты частей взяты из OSM.`
     : b.src === 'guess'
       ? 'Этажность не указана в OSM — мы подставили типовую. Поправьте, если знаете точно.'
       : b.src === 'user' ? 'Этажность задана вами. Расчёт уже обновлён.' : `Высота ${Math.round(b.h)} м по данным OSM.`;
+}
+
+// ---------- Достроить дом ----------
+function startDraw() {
+  if (!S.model) return;
+  S.drawing = { pts: [] };
+  hideFocus();
+  body.classList.add('is-drawing');
+  $('#drawBar').hidden = false;
+  $('#edgeNote').hidden = true;
+  stage.setDraft([]);
+  renderDrawBar();
+  goal('draw_start');
+}
+
+function renderDrawBar() {
+  const n = S.drawing?.pts.length || 0;
+  $('#drawText').textContent = n < 3
+    ? `Кликайте по земле, чтобы обвести контур дома${n ? ` · точек: ${n}` : ''}`
+    : `Точек: ${n}. Замкните контур кликом по первой точке или нажмите «Готово»`;
+  $('#drawDone').disabled = n < 3;
+  $('#drawUndo').disabled = !n;
+}
+
+function drawClick(e) {
+  const pts = S.drawing.pts;
+  // клик рядом с первой точкой замыкает контур
+  if (pts.length >= 3) {
+    const [sx, sy] = stage.toScreen(pts[0].x, pts[0].y);
+    if (Math.hypot(sx - e.clientX, sy - e.clientY) < 16) return finishDraw();
+  }
+  const g = stage.pickGround(e.clientX, e.clientY);
+  if (!g || Math.hypot(g.x, g.y) > S.model.R2 - 5) return toast('Кликните по земле внутри макета');
+  pts.push({ x: Math.round(g.x * 2) / 2, y: Math.round(g.y * 2) / 2 });
+  stage.setDraft(pts);
+  renderDrawBar();
+}
+
+function stopDraw() {
+  S.drawing = null;
+  body.classList.remove('is-drawing');
+  $('#drawBar').hidden = true;
+  stage.setDraft(null);
+  checkEdge();
+}
+
+function finishDraw() {
+  const pts = S.drawing?.pts || [];
+  if (pts.length < 3) return;
+  stopDraw();
+  const i = addBuildings([{ pts, levels: 9 }]);
+  goal('draw_done', { points: pts.length });
+  showFocus(i, innerWidth / 2 - 140, 120);
+}
+
+let addSeq = 0;
+// Добавить нарисованные дома в модель; возвращает индекс последнего
+function addBuildings(list) {
+  for (const { pts, levels } of list) {
+    const outer = pts.flatMap((p) => [p.x, p.y]);
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+    const bbox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    const id = -(1e12 + ++addSeq);
+    S.model.buildings.push({
+      id, group: id, polys: [{ outer, holes: [] }], bbox, cx: (bbox[0] + bbox[2]) / 2, cy: (bbox[1] + bbox[3]) / 2,
+      type: 'construction', h: levels * LEVEL_H, minH: 0, levels, src: 'user', name: 'Добавленный дом', addr: '', added: true,
+    });
+  }
+  rebuildWorld();
+  return S.model.buildings.length - 1;
+}
+
+function removeBuilding(i) {
+  if (!S.model.buildings[i]?.added) return;
+  S.model.buildings.splice(i, 1);
+  hideFocus();
+  if (S.win?.i === i) clearWindow();
+  else if (S.win && S.win.i > i) S.win.i--;
+  rebuildWorld();
+  goal('draw_remove');
+}
+
+// После изменения состава домов: заново анализ, воркер, 3D и расчёт окна
+function rebuildWorld() {
+  S.an = new Analyzer(S.model);
+  calc.setModel(S.model);
+  S.matrixKey = null;
+  stage.rebuildBuildings();
+  if (S.win) setWindow({ ...S.win });
+  else updateHash();
+}
+
+// Добавленные дома в ссылке: «этажи;x:y,x:y,…|…»
+function addedToHash() {
+  return S.model.buildings.filter((b) => b.added).map((b) => {
+    const r = b.polys[0].outer;
+    const pts = [];
+    for (let k = 0; k < r.length; k += 2) pts.push(`${r[k]}:${r[k + 1]}`);
+    return `${b.levels};${pts.join(',')}`;
+  }).join('|');
+}
+
+function addedFromHash(str) {
+  if (!str) return [];
+  return str.split('|').map((part) => {
+    const [lv, coords] = part.split(';');
+    const pts = (coords || '').split(',').map((c) => c.split(':').map(Number)).filter((c) => c.length === 2 && c.every(isFinite)).map(([x, y]) => ({ x, y }));
+    return { levels: clamp(Math.round(+lv) || 9, 1, 160), pts };
+  }).filter((b) => b.pts.length >= 3);
 }
 
 function hideFocus() {
@@ -830,6 +973,7 @@ function enterApp() {
 
 function exitApp() {
   if (S.mode !== 'app') return;
+  if (S.drawing) stopDraw();
   S.mode = 'landing';
   setPlaying(false);
   hideFocus();
@@ -964,6 +1108,8 @@ function updateHash() {
     p.set('w', [S.win.x, S.win.y, S.win.nx, S.win.ny].map((v) => v.toFixed(2)).join(',') + `,${S.win.floor},${o},${S.win.depth}`);
   }
   p.set('n', S.place?.title || '');
+  const added = addedToHash();
+  if (added) p.set('a', added);
   history.replaceState(null, '', `#${p}`);
 }
 
@@ -980,8 +1126,10 @@ async function openFromHash() {
     S.depth = clamp(w[6], 0.6, 2.4);
   }
   enterApp();
+  const added = addedFromHash(p.get('a'));
   const isDemo = Math.abs(lat - PLACES.demo.lat) < 1e-4 && Math.abs(lon - PLACES.demo.lon) < 1e-4;
   if (isDemo) {
+    if (added.length) addBuildings(added);
     if (prefer) {
       const win = autoWindow(prefer);
       if (win) setWindow(win, { source: 'link' });
@@ -989,7 +1137,7 @@ async function openFromHash() {
     flyToWindow();
   } else {
     const ru = lat > 41 && lat < 82 && lon > 19;
-    await loadPlace({ title: p.get('n') || 'Выбранное место', lat, lon, region: p.get('n') || '', country: ru ? 'ru' : '' }, prefer);
+    await loadPlace({ title: p.get('n') || 'Выбранное место', lat, lon, region: p.get('n') || '', country: ru ? 'ru' : '', added }, prefer);
   }
   return true;
 }
@@ -1140,6 +1288,15 @@ function initControls() {
     }
   });
   $('#focusClose').addEventListener('click', hideFocus);
+  $('#focusDelete').addEventListener('click', () => S.focus != null && removeBuilding(S.focus));
+  $('#addBtn').addEventListener('click', startDraw);
+  $('#drawDone').addEventListener('click', finishDraw);
+  $('#drawCancel').addEventListener('click', stopDraw);
+  $('#drawUndo').addEventListener('click', () => {
+    S.drawing?.pts.pop();
+    stage.setDraft(S.drawing?.pts || []);
+    renderDrawBar();
+  });
 
   // календарь: клик — перейти к дате и времени
   const heat = $('#heat');
@@ -1153,9 +1310,11 @@ function initControls() {
     updateDate();
   });
 
-  $('#floors').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-floor]');
-    if (b) setFloor(+b.dataset.floor);
+  $('#matrix').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sector]');
+    if (!b || !S.win) return;
+    const side = sidesOf(S.win.i).find((x) => x.sector === +b.dataset.sector);
+    if (side) setWindow({ ...S.win, x: side.x, y: side.y, nx: side.nx, ny: side.ny, floor: +b.dataset.floor }, { source: 'matrix' });
   });
 
   const bl = $('#blockers');
@@ -1194,7 +1353,11 @@ function initControls() {
       S.minute = clamp(S.minute + (e.key === 'ArrowRight' ? 10 : -10), 0, 1439);
       updateTime();
     }
-    if (e.key === 'Escape') hideFocus();
+    if (e.key === 'Escape') {
+      if (S.drawing) stopDraw();
+      else hideFocus();
+    }
+    if (e.key === 'Enter' && S.drawing) finishDraw();
   });
 
   let rt;

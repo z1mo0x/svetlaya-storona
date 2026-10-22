@@ -883,6 +883,46 @@ export class Stage {
     el.addEventListener('pointerleave', () => this.onHover?.(null));
   }
 
+  // Точка модели → координаты на экране (clientX, clientY)
+  toScreen(x, y, z = 0) {
+    const v = V(x, y, z).project(this.camera);
+    const r = this.canvas.getBoundingClientRect();
+    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+  }
+
+  // Точка на земле под курсором (для рисования нового дома)
+  pickGround(cx, cy) {
+    const r = this.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    this.ray3.setFromCamera(ndc, this.camera);
+    const p = new THREE.Vector3();
+    if (!this.ray3.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), p)) return null;
+    return { x: p.x, y: -p.z };
+  }
+
+  // Черновик контура нового дома: точки и замкнутая линия
+  setDraft(pts) {
+    if (!this.draft) {
+      this.draft = this.#line({ color: 0xc8622a, width: 2.2, opacity: 0.95, depthTest: false });
+      this.draftDots = new THREE.Points(
+        new THREE.BufferGeometry(),
+        new THREE.PointsMaterial({ size: 10, sizeAttenuation: false, color: 0xc8622a, map: dotTexture(), transparent: true, depthTest: false, depthWrite: false, toneMapped: false }),
+      );
+      this.draftDots.frustumCulled = false;
+      this.overlay.add(this.draft, this.draftDots);
+    }
+    const on = !!pts?.length;
+    this.draft.visible = on && pts.length > 1;
+    this.draftDots.visible = on;
+    if (on) {
+      const v = pts.map((p) => V(p.x, p.y, 0.6));
+      this.draftDots.geometry.dispose();
+      this.draftDots.geometry = new THREE.BufferGeometry().setFromPoints(v);
+      if (v.length > 1) this.#setLine(this.draft, v.length > 2 ? [...v, v[0]] : v);
+    }
+    this.invalidate();
+  }
+
   pick(cx, cy) {
     if (!this.buildings || this.uniforms.uProgress.value < 1.5) return null;
     const r = this.canvas.getBoundingClientRect();

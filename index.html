@@ -322,6 +322,11 @@
             </div>
           </section>
 
+          <section class="p-sec" id="addSec">
+            <button class="btn btn-ghost btn-sm" id="addBtn" type="button">Достроить дом</button>
+            <p class="p-sub add-note">Строящегося соседа нет на макете? Обведите его контур на земле и задайте этажность.</p>
+          </section>
+
           <section class="p-sec">
             <div class="p-row">
               <span class="p-label">Дата</span>
@@ -394,8 +399,9 @@
             </section>
 
             <section class="r-sec">
-              <div class="r-head"><h4>Этажи этого стояка</h4><span class="micro">часов солнца в год</span></div>
-              <div class="floors" id="floors"></div>
+              <div class="r-head"><h4>Какую квартиру выбрать</h4><span class="micro" id="matrixState">часов солнца в год</span></div>
+              <div class="matrix" id="matrix"></div>
+              <p class="p-sub matrix-note">Строка — этаж, столбец — сторона дома. Цифра — часы прямого солнца в год, зелёная точка — норма выполняется. Матрица считается быстрее и грубее основного расчёта, расхождение — до 2–3%. Нажмите на ячейку, чтобы перенести туда окно.</p>
             </section>
 
             <section class="r-sec report-ask">
@@ -434,6 +440,15 @@
       </div>
     </div>
 
+    <div class="draw-bar shell" id="drawBar" hidden>
+      <div class="core">
+        <p id="drawText" aria-live="polite">Кликайте по земле, чтобы обвести контур дома</p>
+        <button class="btn btn-ghost btn-sm" id="drawUndo" type="button">Шаг назад</button>
+        <button class="btn btn-ink btn-sm" id="drawDone" type="button">Готово</button>
+        <button class="x" id="drawCancel" type="button" aria-label="Отменить"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+    </div>
+
     <div class="edge-note shell" id="edgeNote" hidden>
       <div class="core">
         <p>Окно у края макета: дома за его границей не учтены.</p>
@@ -455,6 +470,7 @@
           </div>
         </div>
         <p class="p-sub" id="focusNote"></p>
+        <button class="btn btn-ghost btn-sm focus-del" id="focusDelete" type="button" hidden>Убрать этот дом</button>
       </div>
     </div>
   </div>
