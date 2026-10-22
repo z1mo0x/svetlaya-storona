@@ -10,6 +10,9 @@ export const LIT = 3;     // прямое солнце
 
 const FACADE_COS = Math.cos((80 * Math.PI) / 180); // окно «видит» ±80° от нормали (откосы)
 
+// Лоджия или балкон над окном: глубина d, полуширина проёма лоджии и высота плиты над центром окна
+export const OUTDOOR = { none: null, loggia: { half: 1.5, top: 1.3 }, balcony: { half: Infinity, top: 1.3 } };
+
 export class Analyzer {
   constructor(model) {
     this.lat = model.lat;
@@ -51,7 +54,9 @@ export class Analyzer {
   sample(win, v, list) {
     if (v[2] <= 0) return [NIGHT, -1];
     const hl = Math.hypot(v[0], v[1]) || 1;
-    if ((v[0] * win.nx + v[1] * win.ny) / hl < FACADE_COS) return [BEHIND, -1];
+    const cos = (v[0] * win.nx + v[1] * win.ny) / hl;
+    if (cos < FACADE_COS) return [BEHIND, -1];
+    if (win.shade && shadedByOutdoor(win.shade, v, hl, cos, win.nx, win.ny)) return [BEHIND, -1];
     const hit = this.cast(win.ox, win.oy, win.z, v[0], v[1], v[2], list);
     return hit ? [BLOCKED, hit.i] : [LIT, -1];
   }
@@ -62,7 +67,12 @@ export class Analyzer {
   }
 
   prepare(win) {
-    return { ...win, ox: win.x + win.nx * 0.35, oy: win.y + win.ny * 0.35 };
+    // Лоджия: луч к соседям выходит из её проёма, а не от самой стены
+    const kind = OUTDOOR[win.outdoor || 'none'];
+    const depth = kind ? Math.max(0, win.depth ?? 1.2) : 0;
+    const shade = kind && depth > 0 ? { depth, half: kind.half, top: kind.top } : null;
+    const off = 0.35 + depth;
+    return { ...win, shade, ox: win.x + win.nx * off, oy: win.y + win.ny * off };
   }
 
   // Подробный разбор одного дня с шагом step минут
@@ -123,14 +133,14 @@ export class Analyzer {
     const perDay = new Float32Array(days);
     const blockers = new Map();
     const v = [0, 0, 0];
-    let potential = 0, litTotal = 0;
+    let potential = 0, litTotal = 0, litCount = 0;
     for (let di = 0; di < days; di++) {
       for (let k = 0; k < slots; k++) {
         const o = (di * slots + k) * 3;
         v[0] = sun[o]; v[1] = sun[o + 1]; v[2] = sun[o + 2];
         const [s, b] = this.sample(win, v, list);
         grid[di * slots + k] = s;
-        if (s === LIT) { perDay[di] += step; litTotal += step; potential++; }
+        if (s === LIT) { perDay[di] += step; litTotal += step; potential++; litCount++; }
         else if (s === BLOCKED) {
           potential++;
           const g = this.group[b];
@@ -145,7 +155,14 @@ export class Analyzer {
       .sort((a, b) => b[1].c - a[1].c)
       .slice(0, 5)
       .map(([group, e]) => ({ i: e.i, group, share: e.c / Math.max(1, potential) }));
-    return { step, days, dayStep, slots, grid, perDay, litHours: (litTotal * dayStep) / 60, top, potential };
+    // lost — доля солнца перед фасадом, которую забирают соседние дома
+    const lost = potential ? (potential - litCount) / potential : 0;
+    return { step, days, dayStep, slots, grid, perDay, litHours: (litTotal * dayStep) / 60, top, potential, lost };
+  }
+
+  // Лучшее, что бывает на этой широте: южное окно без соседей и без лоджии — точка отсчёта для вердикта
+  maxYear(y, tz) {
+    return this.year({ x: 0, y: 0, nx: 0, ny: -1, z: 1e6 }, y, tz, 10, 1).litHours;
   }
 
   // Проверка по нормативу (ориентир по СанПиН 1.2.3685-21)
@@ -154,7 +171,9 @@ export class Analyzer {
     const zone = lat > 58 ? 'north' : lat >= 48 ? 'center' : 'south';
     const need = zone === 'north' ? 150 : zone === 'center' ? 120 : 90;
     const date = zone === 'south' ? [1, 22] : [3, 22]; // 22 февраля или 22 апреля
-    const cut = zone === 'south' ? 90 : 60; // первые/последние минуты после восхода/перед закатом не учитываются
+    // ГОСТ Р 57795-2017, п. 3.17: южнее 58° с.ш. не учитывают первый час после восхода и последний перед заходом,
+    // севернее 58° — по полтора часа
+    const cut = lat > 58 ? 90 : 60;
     const r = this.day(winIn, y, date[0], date[1], tz, 1);
     const from = r.sunrise + cut, to = r.sunset - cut;
     const parts = r.intervals
@@ -165,7 +184,7 @@ export class Analyzer {
     let pass = longest >= need;
     let mode = 'continuous';
     if (!pass && parts.length > 1 && total >= need + 30 && longest >= 60) { pass = true; mode = 'broken'; }
-    return { zone, need, date, total, longest, pass, mode, parts };
+    return { zone, need, date, cut, total, longest, pass, mode, parts };
   }
 
   // Сравнение этажей: часов прямого солнца в год (по отсчётам каждые 4 дня)
@@ -182,6 +201,15 @@ export class Analyzer {
     }
     return out;
   }
+}
+
+// Боковые стенки лоджии и плита сверху: луч должен пройти в проём глубиной depth
+export function shadedByOutdoor(shade, v, hl, cos, nx, ny) {
+  const sin = Math.abs(v[0] * ny - v[1] * nx) / hl;
+  const tanSide = sin / cos;
+  if (tanSide * shade.depth > shade.half) return true;
+  const tanAlt = v[2] / hl;
+  return tanAlt * shade.depth > shade.top * cos;
 }
 
 // Высота этажа берётся из данных дома: башня в 213 м и 52 этажа — это 4,1 м на этаж, а не типовые 3 м
