@@ -551,7 +551,8 @@ function renderNorm() {
   const card = $('#normCard');
   if (!n) return;
   card.classList.toggle('fail', !n.pass);
-  $('#normBadge').textContent = n.pass ? 'Норма выполняется' : 'Норма не выполняется';
+  card.classList.toggle('edge', n.edge);
+  $('#normBadge').textContent = n.edge ? 'На грани нормы' : n.pass ? 'Норма выполняется' : 'Норма не выполняется';
   const zone = { north: 'северная', center: 'центральная', south: 'южная' }[n.zone];
   const date = n.zone === 'south' ? '22 февраля' : '22 апреля';
   let t = `Расчётный день — ${date}, ${zone} зона: нужно <b>${fmtDur(n.need)}</b> подряд. У окна — <b>${fmtDur(n.longest)}</b> непрерывно`;
@@ -560,6 +561,9 @@ function renderNorm() {
   t += n.cut === 90
     ? ' Полтора часа после восхода и перед закатом не учитываются (ГОСТ Р 57795-2017).'
     : ' Первый час после восхода и последний перед закатом не учитываются (ГОСТ Р 57795-2017).';
+  if (n.edge) {
+    t += ` <b>Запас маленький:</b> по инсоляционному графику восход округляют до часа, учитываемый день выходит на ${n.chartShift} мин короче с каждой стороны — и нормы уже не хватает. Проектировщики считают обоими способами.`;
+  }
   if (S.win?.outdoor && S.win.outdoor !== 'none') t += ' Учтена лоджия или балкон: они закрывают часть солнца.';
   $('#normText').innerHTML = t;
 }
@@ -628,8 +632,10 @@ function renderMatrix() {
     html += `<tr><th scope="row">${f}</th>`;
     for (const s of m.sides) {
       const c = cells.get(`${s.sector}|${f}`);
-      const cls = [s.sector === cur && f === S.win.floor ? 'cur' : '', c ? (c.pass ? 'pass' : '') : 'wait'].filter(Boolean).join(' ');
-      const label = c ? `${f} этаж, окна на ${DIRS[s.sector]}: ${Math.round(c.hours)} ч солнца в год${c.pass ? ', норма выполняется' : ''}` : `${f} этаж, окна на ${DIRS[s.sector]}: считаем`;
+      const norm = c ? (c.edge ? 'edge' : c.pass ? 'pass' : '') : 'wait';
+      const cls = [s.sector === cur && f === S.win.floor ? 'cur' : '', norm].filter(Boolean).join(' ');
+      const said = { edge: ', норма на грани', pass: ', норма выполняется' }[norm] || '';
+      const label = c ? `${f} этаж, окна на ${DIRS[s.sector]}: ${Math.round(c.hours)} ч солнца в год${said}` : `${f} этаж, окна на ${DIRS[s.sector]}: считаем`;
       html += `<td class="${cls}"${c ? ` style="--v:${(c.hours / max).toFixed(3)}"` : ''}><button type="button" data-sector="${s.sector}" data-floor="${f}" aria-label="${label}">${c ? Math.round(c.hours) : '·'}</button></td>`;
     }
     html += '</tr>';
@@ -713,7 +719,7 @@ function reportData() {
     `Дома вокруг — из OpenStreetMap: контуры, высоты и этажность. Где этажность не указана, она оценена по типу здания.${added ? ` Вручную добавлено домов: ${added}.` : ''}`,
     `Расчётная точка — центр окна на ${w.floor} этаже, ${Math.round(w.z)} м над землёй. Солнце, которое скользит вдоль стены под углом меньше 10°, не учитывается.`,
     outdoor && `Учтена ${outdoor}: боковые стены и плита сверху закрывают часть неба.`,
-    'Норма — по СанПиН 1.2.3685-21 и ГОСТ Р 57795-2017: непрерывная или прерывистая инсоляция в расчётный день.',
+    'Норма — по СанПиН 1.2.3685-21 и ГОСТ Р 57795-2017: непрерывная или прерывистая инсоляция в расчётный день. Учитываемый день отсчитан от точного восхода; «на грани» — если по инсоляционному графику, где восход округлён до часа солнечного времени, нормы не хватает.',
     'Деревья, рельеф и отражённый свет не учитываются. Это ориентир, а не официальное заключение: проектировщик считает по поэтажным планам с точными размерами окон и откосов.',
   ].filter(Boolean);
   const normLine = n.mode === 'broken'
@@ -729,7 +735,7 @@ function reportData() {
     levelLabel: $('#vBadge').textContent,
     levelNote: capital(`${note.filter(Boolean).join(', ')}.`),
     verdictText: $('#vText').textContent,
-    norm: { pass: n.pass, line: normLine, text: $('#normText').textContent },
+    norm: { pass: n.pass, edge: n.edge, line: normLine, text: $('#normText').textContent },
     blockers, method, heat,
     matrix: matrixReport(),
     shot: stage.snapshot(1080 / 600, { x: w.x, y: w.y, z: w.z }),
@@ -751,7 +757,7 @@ function matrixReport() {
       floor: f,
       cells: m.sides.map((s) => {
         const c = cells.get(`${s.sector}|${f}`);
-        return { hours: c ? Math.round(c.hours) : null, pass: !!c?.pass, cur: s.sector === cur && f === S.win.floor };
+        return { hours: c ? Math.round(c.hours) : null, pass: !!c?.pass, edge: !!c?.edge, cur: s.sector === cur && f === S.win.floor };
       }),
     })),
     partial: m.cells.length < m.sides.length * m.floors.length,

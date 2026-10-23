@@ -1,8 +1,8 @@
 // Расчёт солнца в окне на синтетическом квартале, где ответ известен заранее
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Analyzer, NIGHT, BEHIND, BLOCKED, LIT, floorsOf, floorZ } from '../js/insolation.js';
-import { sunVector } from '../js/sun.js';
+import { Analyzer, NIGHT, BEHIND, BLOCKED, LIT, floorsOf, floorZ, judgeNorm } from '../js/insolation.js';
+import { sunVector, sunPosition, localToUTC } from '../js/sun.js';
 
 const RAD = Math.PI / 180;
 const v = (altDeg, azDeg) => sunVector(altDeg * RAD, azDeg * RAD);
@@ -77,6 +77,25 @@ test('южное окно без соседей проходит норму, з�
   assert.equal(new Analyzer(model(55.75, [home])).norm(win, 2026, 3).pass, true);
   const wall = building(3, box(-80, -30, 80, -20), 120);
   assert.equal(new Analyzer(model(55.75, [home, wall])).norm(win, 2026, 3).pass, false);
+});
+
+test('норма «на грани»: хватает по точному восходу, но не по инсоляционному графику', () => {
+  // Окно видит солнце от восхода, пока оно не уйдёт за плоскость фасада (80° от нормали) в 8:23.
+  // По точному восходу учитывается с 6:17 — 2 ч 6 мин, по графику с 6:29 — 1 ч 54 мин
+  const end = sunPosition(localToUTC(2026, 3, 22, 8 * 60 + 23, 3), 55.75, 37.6).az / RAD;
+  const th = (end - 80) * RAD;
+  const n = new Analyzer(model(55.75, [])).norm({ x: 0, y: 0, nx: Math.sin(th), ny: Math.cos(th), z: 10 }, 2026, 3);
+  assert.equal(n.pass, true);
+  assert.equal(n.edge, true);
+  assert.ok(n.chartShift >= 5 && n.chartShift <= 20, `сдвиг графика ${n.chartShift} мин`);
+  assert.equal(new Analyzer(model(55.75, [home])).norm(win, 2026, 3).edge, false, 'южное окно с запасом');
+});
+
+test('прерывистая инсоляция: +30 мин в сумме и отрезок не короче часа', () => {
+  assert.equal(judgeNorm([[400, 470], [500, 580]], 0, 1440, 120).pass, true);
+  assert.equal(judgeNorm([[400, 470], [500, 580]], 0, 1440, 120).mode, 'broken');
+  assert.equal(judgeNorm([[400, 450], [500, 600]], 0, 1440, 120).pass, true, '50 + 100: самый длинный ≥ 60');
+  assert.equal(judgeNorm([[400, 455], [500, 555], [600, 650]], 0, 1440, 120).pass, false, 'все отрезки короче часа');
 });
 
 test('этажи по высоте этажа самого дома', () => {

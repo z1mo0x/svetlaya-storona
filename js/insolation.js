@@ -175,21 +175,25 @@ export class Analyzer {
     // севернее 58° — по полтора часа
     const cut = lat > 58 ? 90 : 60;
     const r = this.day(winIn, y, date[0], date[1], tz, 1);
-    const from = r.sunrise + cut, to = r.sunset - cut;
-    const parts = r.intervals
-      .map(([a, b]) => [Math.max(a, from), Math.min(b, to)])
-      .filter(([a, b]) => b > a);
-    const total = parts.reduce((s, [a, b]) => s + b - a, 0);
-    const longest = parts.reduce((s, [a, b]) => Math.max(s, b - a), 0);
-    let pass = longest >= need;
-    let mode = 'continuous';
-    if (!pass && parts.length > 1 && total >= need + 30 && longest >= 60) { pass = true; mode = 'broken'; }
-    return { zone, need, date, cut, total, longest, pass, mode, parts };
+    const exact = judgeNorm(r.intervals, r.sunrise + cut, r.sunset - cut, need);
+    // Инсоляционные графики (ГОСТ Р 57795-2017, п. 5.2) ведут отсчёт от восхода, округлённого до часа солнечного
+    // времени: на 55° с.ш. 22 апреля учитывается 6:00–18:00, а по точному восходу — примерно 5:50–18:10.
+    // Если по графику нормы не хватает, окно «на грани»: проектировщик может посчитать и так, и так
+    const half = (r.sunset - r.sunrise) / 2, noon = r.sunrise + half;
+    const rise = Math.ceil((720 - half) / 60) * 60;
+    const chartFrom = noon - 720 + rise + cut, chartTo = noon + 720 - rise - cut;
+    const chart = judgeNorm(r.intervals, chartFrom, chartTo, need);
+    return {
+      zone, need, date, cut, ...exact,
+      edge: exact.pass && !chart.pass,
+      chartShift: Math.round(chartFrom - (r.sunrise + cut)),
+    };
   }
 
   // Ячейка матрицы дома: часы прямого солнца в год (каждые 4 дня, шаг 15 мин) и норма
   cell(win, y, tz) {
-    return { hours: this.year(win, y, tz, 15, 4).litHours, pass: this.norm(win, y, tz).pass };
+    const n = this.norm(win, y, tz);
+    return { hours: this.year(win, y, tz, 15, 4).litHours, pass: n.pass, edge: n.edge };
   }
 
   // Матрица «стороны × этажи»: cells приходят построчно через onRow
@@ -221,6 +225,23 @@ export class Analyzer {
     }
     return out;
   }
+}
+
+// Солнечные отрезки дня внутри учитываемого периода [from, to] против нормы need минут:
+// непрерывно — need подряд; прерывисто — на 30 мин больше в сумме и один отрезок не короче часа
+export function judgeNorm(intervals, from, to, need) {
+  const parts = intervals
+    .map(([a, b]) => [Math.max(a, from), Math.min(b, to)])
+    .filter(([a, b]) => b > a);
+  const total = parts.reduce((s, [a, b]) => s + b - a, 0);
+  const longest = parts.reduce((s, [a, b]) => Math.max(s, b - a), 0);
+  let pass = longest >= need;
+  let mode = 'continuous';
+  if (!pass && parts.length > 1 && total >= need + 30 && longest >= 60) {
+    pass = true;
+    mode = 'broken';
+  }
+  return { total, longest, pass, mode, parts };
 }
 
 // Боковые стенки лоджии и плита сверху: луч должен пройти в проём глубиной depth

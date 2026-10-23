@@ -116,9 +116,9 @@ export async function makeCard(d) {
   // Норма; у Cormorant цифры старого стиля — хвосты 3, 5, 7, 9 уходят под строку
   y += 76;
   g.font = '700 24px Manrope';
-  const badge = d.norm.pass ? 'Норма выполняется' : 'Норма не выполняется';
+  const badge = d.norm.edge ? 'На грани нормы' : d.norm.pass ? 'Норма выполняется' : 'Норма не выполняется';
   const bw = g.measureText(badge).width + 40;
-  g.fillStyle = d.norm.pass ? C.sage : C.sunDeep;
+  g.fillStyle = d.norm.edge ? C.sun : d.norm.pass ? C.sage : C.sunDeep;
   roundRect(g, P, y, bw, 50, 25);
   g.fill();
   g.fillStyle = '#fff';
@@ -227,9 +227,9 @@ export async function printReport(d) {
   const m = d.matrix;
   const matrix = m ? `<section class="pr-sec pr-matrix">
       <h2>Солнце по квартирам этого дома</h2>
-      <p class="pr-note">Часы прямого солнца в год. Строка — этаж, столбец — сторона дома. «✓» — норма выполняется. Рамкой выделено ваше окно.${m.partial ? ' Часть ячеек не успела посчитаться.' : ''}</p>
+      <p class="pr-note">Часы прямого солнца в год. Строка — этаж, столбец — сторона дома. «✓» — норма выполняется, «≈» — на грани. Рамкой выделено ваше окно.${m.partial ? ' Часть ячеек не успела посчитаться.' : ''}</p>
       <table class="pr-table pr-grid"><thead><tr><th>Этаж</th>${m.cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
-      ${m.rows.map((r) => `<tr><th>${r.floor}</th>${r.cells.map((c) => `<td class="${c.cur ? 'cur' : ''}">${c.hours == null ? '—' : `${c.hours}${c.pass ? ' ✓' : ''}`}</td>`).join('')}</tr>`).join('')}
+      ${m.rows.map((r) => `<tr><th>${r.floor}</th>${r.cells.map((c) => `<td class="${c.cur ? 'cur' : ''}">${c.hours == null ? '—' : `${c.hours}${c.edge ? ' ≈' : c.pass ? ' ✓' : ''}`}</td>`).join('')}</tr>`).join('')}
       </tbody></table>
     </section>` : '';
 
@@ -243,7 +243,7 @@ export async function printReport(d) {
       <div><b class="pr-level is-${d.level}">${esc(d.levelLabel)}</b><p>${esc(d.verdictText)}</p></div>
     </section>
     <section class="pr-sec">
-      <h2>Норма инсоляции — ${d.norm.pass ? 'выполняется' : 'не выполняется'}</h2>
+      <h2>Норма инсоляции — ${d.norm.edge ? 'на грани' : d.norm.pass ? 'выполняется' : 'не выполняется'}</h2>
       <p>${esc(d.norm.text)}</p>
     </section>
     <section class="pr-sec">

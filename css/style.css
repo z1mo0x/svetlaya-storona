@@ -737,6 +737,8 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .norm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .norm-badge { font: 700 12px/1 var(--sans); padding: 6px 10px; border-radius: 999px; background: var(--sage); color: #fff; }
 .norm-card.fail .norm-badge { background: var(--sun-deep); }
+.norm-card.edge { background: rgba(238, 154, 58, 0.1); box-shadow: inset 0 0 0 1px rgba(238, 154, 58, 0.25); }
+.norm-card.edge .norm-badge { background: var(--sun); }
 .norm-text { margin: 10px 0 0; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
 .norm-text b { color: var(--ink); }
 
@@ -784,7 +786,9 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
   transition: box-shadow 0.25s var(--ease);
 }
 .matrix td.wait button { color: var(--ink-3); background: #f1ebe1; }
-.matrix td.pass button::after { content: ""; position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--sage); }
+.matrix td.pass button::after,
+.matrix td.edge button::after { content: ""; position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--sage); }
+.matrix td.edge button::after { background: transparent; box-shadow: inset 0 0 0 1.2px var(--sage); }
 .matrix td button:hover { box-shadow: 0 0 0 1px var(--ink-2); }
 .matrix td.cur button { box-shadow: 0 0 0 2px var(--ink); }
 .matrix-note { margin-top: 10px; font-size: 11.5px; }
