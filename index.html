@@ -404,13 +404,19 @@
               <p class="p-sub matrix-note">Строка — этаж, столбец — сторона дома. Цифра — часы прямого солнца в год, зелёная точка — норма выполняется. Матрица считается быстрее и грубее основного расчёта, расхождение — до 2–3%. Нажмите на ячейку, чтобы перенести туда окно.</p>
             </section>
 
-            <section class="r-sec report-ask">
-              <p>Нужен PDF-отчёт по этой квартире — чтобы показать застройщику или продавцу?</p>
-              <button class="btn btn-sun btn-sm" id="reportBtn" type="button">Да, нужен</button>
-              <p class="p-sub" id="reportThanks" hidden>Спасибо, учли. Отчёт пока в разработке<span id="reportTg"></span>.</p>
-            </section>
-
             <section class="r-sec r-actions">
+              <div class="r-head"><h4>Отчёт по окну</h4></div>
+              <p class="report-note">Показать семье, застройщику или продавцу: картинка для мессенджера или PDF с расчётом, матрицей дома и методикой.</p>
+              <div class="report-btns">
+                <button class="btn btn-sun btn-sm" id="reportImg" type="button">
+                  <svg class="btn-i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5"/></svg>
+                  Картинка
+                </button>
+                <button class="btn btn-ghost btn-sm" id="reportPdf" type="button">
+                  <svg class="btn-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="M14 3.5V8h4.5M10 13h6M10 16.5h6"/></svg>
+                  PDF
+                </button>
+              </div>
               <button class="btn btn-ghost btn-sm" id="shareBtn" type="button">
                 <svg class="btn-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15 15 9M10 6.5l1.8-1.8a4 4 0 0 1 5.6 5.6L15.6 12M8.4 12l-1.8 1.8a4 4 0 0 0 5.6 5.6l1.8-1.8"/></svg>
                 Скопировать ссылку на окно

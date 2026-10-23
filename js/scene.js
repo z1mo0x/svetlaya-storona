@@ -890,6 +890,44 @@ export class Stage {
     return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
   }
 
+  // Снимок текущего вида для отчёта: кадр с пропорцией aspect вокруг точки модели (окна).
+  // Рисуем и копируем в одной задаче — так буфер WebGL ещё не очищен
+  snapshot(aspect, at) {
+    // на узком экране телефона кадр был бы мелким — рисуем один кадр в большем разрешении
+    const pr = this.renderer.getPixelRatio();
+    const need = Math.min(3, 1080 / (this.canvas.clientWidth || 1080));
+    if (need > pr) {
+      this.renderer.setPixelRatio(need);
+      this.resize();
+    }
+    this.sky.position.copy(this.camera.position);
+    this.renderer.render(this.scene, this.camera);
+    const src = this.canvas;
+    let h = src.height * 0.82, w = h * aspect;
+    if (w > src.width) {
+      w = src.width;
+      h = w / aspect;
+    }
+    let cx = src.width / 2, cy = src.height / 2;
+    if (at) {
+      const r = src.getBoundingClientRect(), k = src.width / r.width;
+      const [sx, sy] = this.toScreen(at.x, at.y, at.z);
+      cx = (sx - r.left) * k;
+      cy = (sy - r.top) * k;
+    }
+    const x = Math.min(Math.max(0, cx - w / 2), src.width - w);
+    const y = Math.min(Math.max(0, cy - h / 2), src.height - h);
+    const out = document.createElement('canvas');
+    out.width = Math.round(w);
+    out.height = Math.round(h);
+    out.getContext('2d').drawImage(src, x, y, w, h, 0, 0, out.width, out.height);
+    if (need > pr) {
+      this.renderer.setPixelRatio(pr);
+      this.resize();
+    }
+    return out;
+  }
+
   // Точка на земле под курсором (для рисования нового дома)
   pickGround(cx, cy) {
     const r = this.canvas.getBoundingClientRect();

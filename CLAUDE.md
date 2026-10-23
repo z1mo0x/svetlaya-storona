@@ -6,12 +6,15 @@
 
 Статический сайт без сборки: `index.html`, `css/style.css`, ES-модули в `js/`, three.js 0.169 с jsDelivr через importmap.
 
-- `js/osm.js` — загрузка OSM API (4 запроса-квадранта) и разбор в модель квартала: `buildings`, `roads`, `areas`, `trees`
+- `js/tiles.js` — `loadFeatures()`: тайлы из `CONFIG.dataUrl`, если город есть в их `index.json`, иначе OSM API. `?data=<url>` подменяет источник тайлов
+- `js/osm.js` — разбор в два слоя: `elementsToFeatures()` (элементы OSM API → признаки в долготе/широте) и `featuresToModel()` (признаки → модель в метрах: `buildings`, `roads`, `areas`, `trees`); `fetchOSM()` — 4 запроса-квадранта
+- `js/osm-rules.js`, `js/tile-format.js` — общие с репозиторием тайлов: какие теги брать, формат тайла (сетка 0,012° × 0,007°), отсечение по тайлу, чтение GeoJSON из osmium
 - `js/sun.js` — положение солнца, часовые пояса РФ по региону
 - `js/insolation.js` — `Analyzer`: луч от окна к солнцу против призм домов, день/год/норма/этажи, лоджия (`OUTDOOR`, `shadedByOutdoor`), `floorsOf` (высота этажа = высота / этажность)
 - `js/worker.js` + `js/calc.js` — год и этажи считаются в Web Worker; если воркер недоступен, `Calc` считает в основном потоке
 - `js/scene.js` — `Stage`: three.js, кадр рисуется только после `invalidate()`; уровни качества из `js/quality.js`
-- `js/main.js` — интерфейс, состояние `S`, связка всего
+- `js/report.js` — картинка 1080 px для мессенджеров (canvas) и PDF через `window.print` с отдельной вёрсткой `@media print`; снимок 3D — `Stage.snapshot()`
+- `js/main.js` — интерфейс, состояние `S`, связка всего. Матрица дома — `updateMatrix()`, «Достроить дом» — `startDraw()`…`addBuildings()` (дома пользователя с `added: true` хранятся в ссылке, параметр `a`), отчёт — `makeReport()`
 - `js/analytics.js`, `js/config.js` — Яндекс Метрика (выключена, пока `metrikaId: null`), ссылка на Telegram
 - `data/demo.json` — демо-квартал у Москва-Сити (собирается `tools/build-demo.mjs`)
 
@@ -26,6 +29,12 @@
 - Скорость проверять в Playwright, а не во встроенной панели браузера: когда окно приложения перекрыто, панель перестаёт выдавать кадры и замеры врут.
 - Однофайловая версия для открытия с диска: `node tools/build-standalone.mjs` → `dist/index.html`.
 
+## Данные (тайлы)
+
+- Репозиторий `../svetlaya-storona-data` (публичный, https://github.com/z1mo0x/svetlaya-storona-data): GitHub Actions 2-го числа каждого месяца качает Geofabrik, режет osmium и публикует тайлы на GitHub Pages.
+- `js/osm-rules.js` и `js/tile-format.js` — общий код. После правки: `node tools/sync-data-lib.mjs` (копирует в `../svetlaya-storona-data/lib`) и коммит в оба репозитория.
+- Новый город — строка в `cities.json` репозитория тайлов.
+
 ## Деплой
 
 - Работа в ветке `dev` (Vercel делает превью-деплой), в `main` — после проверки. Пуш в `main` публикует https://svetlaya-storona.vercel.app.
@@ -34,8 +43,9 @@
 
 ## Подводные камни
 
-- OSM API отвечает 429 при частых запросах, а его правила запрещают массовое чтение данных веб-сервисами. До любого продвижения — свои тайлы (этап 2 в `docs/STRATEGY.md`).
-- С этой машины без VPN не открываются Overpass, OpenFreeMap, Open-Meteo; `*.vercel.app` из РФ доступен нестабильно. Работают OSM API, Photon, jsDelivr, Google Fonts.
+- OSM API отвечает 429 при частых запросах, а его правила запрещают массовое чтение данных веб-сервисами. Он остаётся только запасным путём для городов без тайлов.
+- Снимок WebGL для отчёта берётся сразу после `render()` в той же задаче: `preserveDrawingBuffer` выключен ради скорости.
+- С этой машины без VPN не открываются Overpass, OpenFreeMap, Open-Meteo; `*.vercel.app` из РФ доступен нестабильно. Работают OSM API, Photon, jsDelivr, Google Fonts, GitHub Pages, Geofabrik.
 - Бесплатный тариф Vercel только некоммерческий: платежи и реклама платных услуг на нём запрещены.
 - three.js навсегда останавливает цикл кадров, если кадр бросил исключение, — поэтому `#tick` обёрнут в try/catch.
 - Норма: по ГОСТ Р 57795-2017 п. 3.17 южнее 58° с.ш. не учитывают первый и последний час светового дня, севернее — по 1,5 часа.

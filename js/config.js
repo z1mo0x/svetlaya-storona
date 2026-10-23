@@ -4,6 +4,4 @@ export const CONFIG = {
   metrikaId: null,
   // Тайлы домов (репозиторий svetlaya-storona-data на GitHub Pages). Если города нет в тайлах — берём OSM API
   dataUrl: 'https://z1mo0x.github.io/svetlaya-storona-data',
-  // Ссылка на Telegram-канал проекта для тех, кто ждёт отчёт. null — ссылку не показываем
-  telegramUrl: null,
 };

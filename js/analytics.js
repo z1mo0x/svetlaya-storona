@@ -21,7 +21,8 @@ export function initAnalytics() {
   addEventListener('unhandledrejection', (e) => jsError(String(e.reason?.message || e.reason)));
 }
 
-// Цель: search, place_loaded, window_set, floor_change, outdoor_change, report_interest, share_link, open_app, quick_place
+// Цель: search, place_loaded, place_error, window_set, floor_change, outdoor_change, report_image, report_pdf, share_link,
+// open_app, quick_place, draw_start, draw_done, draw_remove
 export function goal(name, params) {
   if (debug) console.info('[цель]', name, params || '');
   if (id && window.ym) window.ym(id, 'reachGoal', name, params);

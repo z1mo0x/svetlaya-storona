@@ -9,7 +9,7 @@ import {
 import { suggest } from './geocode.js';
 import { Calc } from './calc.js';
 import { initAnalytics, goal } from './analytics.js';
-import { CONFIG } from './config.js';
+import { makeCard, shareCard, printReport } from './report.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -649,11 +649,121 @@ function shortName(b) {
   return b.name || b.addr || capital(TYPE_NAMES[b.type] || 'здание');
 }
 
+// ---------- Отчёт: картинка и PDF ----------
+async function makeReport(kind) {
+  if (!S.win || S.reporting) return;
+  S.reporting = true;
+  const btn = $(kind === 'pdf' ? '#reportPdf' : '#reportImg');
+  btn.disabled = true;
+  try {
+    if (!(await reportReady())) return toast('Расчёт ещё не готов, попробуйте через пару секунд');
+    const d = reportData();
+    if (kind === 'pdf') {
+      goal('report_pdf', { floor: S.win.floor, verdict: d.level });
+      await printReport(d);
+    } else {
+      const res = await shareCard(await makeCard(d), `${d.fileName}.png`, d.shareText);
+      goal('report_image', { floor: S.win.floor, verdict: d.level, result: res });
+      if (res === 'downloaded') toast('Картинка сохранена в загрузки');
+    }
+  } catch (e) {
+    console.error(e);
+    toast('Не получилось собрать отчёт');
+  } finally {
+    S.reporting = false;
+    btn.disabled = false;
+  }
+}
+
+// Ждём годовой расчёт и матрицу дома, но не дольше 20 секунд
+async function reportReady() {
+  const busy = () => !S.yr || $('#verdict').classList.contains('is-busy');
+  const done = () => !busy() && S.matrix && S.matrix.cells.length >= S.matrix.sides.length * S.matrix.floors.length;
+  const t0 = performance.now();
+  while (!done() && performance.now() - t0 < 20000) await new Promise((r) => setTimeout(r, 150));
+  return !busy();
+}
+
+function reportData() {
+  const w = S.win, b = S.model.buildings[w.i], n = S.norm, y = S.date.y;
+  const az = ((Math.atan2(w.nx, w.ny) * 180) / Math.PI + 360) % 360;
+  const dir = DIRS[Math.round(az / 45) % 8];
+  const lv = groupLevels(b.group);
+  const depth = `${String(w.depth.toFixed(1)).replace('.', ',')} м`;
+  const outdoor = { loggia: `лоджия ${depth}`, balcony: `балкон сверху ${depth}` }[w.outdoor];
+  const title = b.name && b.addr ? `${b.name}, ${b.addr}` : b.name || b.addr || S.place?.title || 'Окно';
+  const hours = Math.round(S.yr.litHours);
+  const hoursText = hours.toLocaleString('ru-RU');
+  const ratio = S.maxHours ? hours / S.maxHours : null;
+  const lost = Math.round(S.yr.lost * 100);
+  const level = $('#verdict').dataset.level || 'mid';
+  const note = [ratio != null && `${Math.round(ratio * 100)}% от лучшего окна на этой широте`, lost >= 5 ? `соседи забирают ${lost}%` : 'соседи почти не мешают'];
+  const added = S.model.buildings.filter((x) => x.added).length;
+  const blockers = (S.yr.top || []).filter((t) => t.share >= 0.01).slice(0, 5).map((t) => {
+    const nb = S.model.buildings[t.i];
+    const nl = groupLevels(nb.group);
+    return {
+      name: shortName(nb),
+      meta: `${nl} ${plural(nl, ['этаж', 'этажа', 'этажей'])} · ${Math.round(Math.hypot(nb.cx - w.x, nb.cy - w.y))} м от окна`,
+      share: Math.round(t.share * 100),
+    };
+  });
+  const method = [
+    `Положение солнца рассчитано для координат ${S.model.lat.toFixed(5)}, ${S.model.lon.toFixed(5)} на каждые 10 минут каждого дня ${y} года (${formatOffset(S.tz)}).`,
+    `Дома вокруг — из OpenStreetMap: контуры, высоты и этажность. Где этажность не указана, она оценена по типу здания.${added ? ` Вручную добавлено домов: ${added}.` : ''}`,
+    `Расчётная точка — центр окна на ${w.floor} этаже, ${Math.round(w.z)} м над землёй. Солнце, которое скользит вдоль стены под углом меньше 10°, не учитывается.`,
+    outdoor && `Учтена ${outdoor}: боковые стены и плита сверху закрывают часть неба.`,
+    'Норма — по СанПиН 1.2.3685-21 и ГОСТ Р 57795-2017: непрерывная или прерывистая инсоляция в расчётный день.',
+    'Деревья, рельеф и отражённый свет не учитываются. Это ориентир, а не официальное заключение: проектировщик считает по поэтажным планам с точными размерами окон и откосов.',
+  ].filter(Boolean);
+  const normLine = n.mode === 'broken'
+    ? `у окна ${fmtDur(n.total)} с перерывами, нужно ${fmtDur(n.need + 30)}`
+    : `у окна ${fmtDur(n.longest)} подряд, нужно ${fmtDur(n.need)}`;
+  const heat = document.createElement('canvas');
+  drawHeat(heat, S.yr, null, [1200, 200]);
+  updateHash();
+  return {
+    title,
+    kicker: [`${w.floor} этаж из ${lv}`, `окна на ${dir}`, outdoor, S.place?.title].filter(Boolean).join(' · '),
+    hoursText, level, year: y,
+    levelLabel: $('#vBadge').textContent,
+    levelNote: capital(`${note.filter(Boolean).join(', ')}.`),
+    verdictText: $('#vText').textContent,
+    norm: { pass: n.pass, line: normLine, text: $('#normText').textContent },
+    blockers, method, heat,
+    matrix: matrixReport(),
+    shot: stage.snapshot(1080 / 600, { x: w.x, y: w.y, z: w.z }),
+    url: location.href,
+    today: new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }),
+    fileName: `Солнце — ${title}, ${w.floor} этаж`.replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 120),
+    shareText: `${title}, ${w.floor} этаж: ${hoursText} ч прямого солнца в год. ${location.href}`,
+  };
+}
+
+function matrixReport() {
+  const m = S.matrix;
+  if (!m?.cells.length) return null;
+  const cur = sectorOf(S.win.nx, S.win.ny);
+  const cells = new Map(m.cells.map((c) => [`${c.sector}|${c.floor}`, c]));
+  return {
+    cols: m.sides.map((s) => DIRS_SHORT[s.sector]),
+    rows: m.floors.map((f) => ({
+      floor: f,
+      cells: m.sides.map((s) => {
+        const c = cells.get(`${s.sector}|${f}`);
+        return { hours: c ? Math.round(c.hours) : null, pass: !!c?.pass, cur: s.sector === cur && f === S.win.floor };
+      }),
+    })),
+    partial: m.cells.length < m.sides.length * m.floors.length,
+  };
+}
+
 // ---------- Холсты ----------
-function drawHeat(cv, yr, markDoy) {
+// size — явный размер в пикселях для холста вне страницы (отчёт)
+function drawHeat(cv, yr, markDoy, size) {
   if (!cv || !yr) return;
-  const dpr = Math.min(devicePixelRatio || 1, 2);
-  const W = cv.clientWidth, H = cv.clientHeight;
+  const dpr = size ? 1 : Math.min(devicePixelRatio || 1, 2);
+  const [W, H] = size || [cv.clientWidth, cv.clientHeight];
   if (!W || !H) return;
   cv.width = Math.round(W * dpr);
   cv.height = Math.round(H * dpr);
@@ -1278,15 +1388,8 @@ function initControls() {
   });
   $$('#outdoorSeg button').forEach((b) => b.addEventListener('click', () => setOutdoor(b.dataset.outdoor)));
 
-  // Проверка интереса к отчёту: без оплаты, просто считаем, сколько людям это нужно
-  $('#reportBtn').addEventListener('click', () => {
-    goal('report_interest', { floor: S.win?.floor, verdict: $('#verdict').dataset.level });
-    $('#reportBtn').hidden = true;
-    $('#reportThanks').hidden = false;
-    if (CONFIG.telegramUrl) {
-      $('#reportTg').innerHTML = `. Новости — в <a href="${CONFIG.telegramUrl}" target="_blank" rel="noopener">Telegram-канале</a>`;
-    }
-  });
+  $('#reportImg').addEventListener('click', () => makeReport('image'));
+  $('#reportPdf').addEventListener('click', () => makeReport('pdf'));
   $('#focusClose').addEventListener('click', hideFocus);
   $('#focusDelete').addEventListener('click', () => S.focus != null && removeBuilding(S.focus));
   $('#addBtn').addEventListener('click', startDraw);

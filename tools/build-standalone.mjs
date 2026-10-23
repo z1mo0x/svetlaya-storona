@@ -7,7 +7,10 @@ const read = (p) => readFileSync(new URL(p, root), 'utf8');
 
 // Порядок важен: модуль идёт после тех, от кого зависит
 // Воркер в один файл не встраивается — без него расчёт идёт в основном потоке (см. js/calc.js)
-const MODULES = ['sun', 'osm', 'insolation', 'geocode', 'quality', 'config', 'analytics', 'calc', 'scene', 'main'];
+const MODULES = [
+  'sun', 'osm-rules', 'tile-format', 'osm', 'config', 'tiles', 'insolation', 'geocode', 'quality', 'analytics', 'calc', 'scene', 'report', 'main',
+];
+const ident = (name) => `__${name.replace(/-/g, '_')}`;
 
 const threeImports = new Set();
 const parts = [];
@@ -22,7 +25,7 @@ for (const name of MODULES) {
   // локальные импорты → деструктуризация из уже собранного модуля
   code = code.replace(/import\s*\{([\s\S]*?)\}\s*from\s*'\.\/([\w-]+)\.js';/g, (_, names, mod) => {
     const list = names.split(',').map((s) => s.trim()).filter(Boolean).map((s) => s.replace(/\s+as\s+/, ': '));
-    return `const { ${list.join(', ')} } = __${mod};`;
+    return `const { ${list.join(', ')} } = ${ident(mod)};`;
   });
   const exported = [];
   code = code.replace(/^export\s+((?:async\s+)?function\*?|class|const|let)\s+(\w+)/gm, (_, kind, id) => {
@@ -38,7 +41,7 @@ for (const name of MODULES) {
       "Promise.resolve(JSON.parse(document.getElementById('demo-data').textContent))");
     parts.push(`{\n${code}\n}`);
   } else {
-    parts.push(`const __${name} = (() => {\n${code}\nreturn { ${exported.join(', ')} };\n})();`);
+    parts.push(`const ${ident(name)} = (() => {\n${code}\nreturn { ${exported.join(', ')} };\n})();`);
   }
 }
 
