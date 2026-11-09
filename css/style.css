@@ -993,6 +993,43 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .report-btns { display: flex; gap: 8px; margin-bottom: 14px; }
 .report-btns .btn:disabled { opacity: 0.55; cursor: progress; }
 
+/* Опрос о цене и подпись риелтора */
+.survey { margin: 0 0 14px; padding: 12px 14px; border-radius: 14px; background: rgba(238, 154, 58, 0.1); }
+.survey-q { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.survey-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.survey-btns button { padding: 7px 11px; border-radius: 999px; font-size: 12.5px; background: var(--paper); box-shadow: inset 0 0 0 1px var(--line-2); transition: background-color 0.3s var(--ease); }
+.survey-btns button:hover { background: #fff; box-shadow: inset 0 0 0 1px var(--ink-2); }
+.survey-thanks { margin: 0; }
+.report-sign { margin: 0 0 14px; font-size: 13px; }
+.report-sign summary { cursor: pointer; color: var(--ink-2); }
+.report-sign input { width: 100%; margin-top: 10px; padding: 10px 12px; border: 0; border-radius: 12px; background: rgba(29, 23, 18, 0.05); font-size: 13px; }
+.report-sign input:focus { outline: 2px solid var(--sun); outline-offset: 0; }
+.report-sign .p-sub { margin-top: 6px; font-size: 11.5px; }
+
+/* Сравнение вариантов */
+.compare { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 22px 24px; border: 0; border-radius: 22px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-soft); }
+.compare::backdrop { background: rgba(25, 19, 16, 0.42); }
+.cmp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.cmp-head h3 { margin: 0; font: 500 28px/1.1 var(--serif); }
+.cmp-close { width: 36px; height: 36px; border-radius: 50%; font-size: 22px; color: var(--ink-2); }
+.cmp-close:hover { background: rgba(29, 23, 18, 0.06); }
+.cmp-table { overflow-x: auto; }
+.cmp-table table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; }
+.cmp-table th { text-align: left; font-weight: 500; font-size: 11.5px; color: var(--ink-3); padding: 0 10px 8px; }
+.cmp-table td { padding: 10px; border-top: 1px solid var(--line-2); vertical-align: top; }
+.cmp-table td small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--ink-3); }
+.cmp-table .num { font: 500 14px var(--mono); white-space: nowrap; }
+.cmp-table tr.best td:first-child b::after { content: "больше всего солнца"; display: block; margin-top: 2px; font-weight: 600; font-size: 11.5px; color: var(--sun-deep); }
+.cmp-norm.is-pass { color: var(--sage); font-weight: 600; }
+.cmp-norm.is-edge { color: var(--sun-deep); font-weight: 600; }
+.cmp-norm.is-fail { color: #b0442a; font-weight: 600; }
+.cmp-act { white-space: nowrap; text-align: right; }
+.cmp-act button { padding: 6px 10px; border-radius: 999px; font-size: 12.5px; color: var(--ink-2); }
+.cmp-act button:hover { background: rgba(29, 23, 18, 0.06); color: var(--ink); }
+.cmp-empty { margin: 8px 0; color: var(--ink-3); font-size: 14px; }
+.cmp-note { margin-top: 14px; font-size: 12px; }
+.cmp-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
 .cookie {
   position: fixed;
   left: 50%;
@@ -1159,6 +1196,10 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
   .pr-grid td.cur { outline: 0.5mm solid var(--ink); outline-offset: -0.5mm; font-weight: 700; }
   .pr-method ul { margin: 0; padding-left: 4mm; color: var(--ink-2); font-size: 8.5pt; }
   .pr-method li { margin-bottom: 1mm; }
+  .pr-disclaimer { margin: 3mm 0 0; padding: 2.5mm 3.5mm; border-radius: 2mm; background: var(--bg); color: var(--ink-2); font-size: 8.5pt; }
+  .pr-table small { color: var(--ink-3); font-size: 7.5pt; }
+  .pr-cmp th { text-align: left; font-weight: 700; font-size: 8.5pt; }
+  .pr-cmp tr.best td { background: rgba(238, 154, 58, 0.12); }
   .pr-foot { margin-top: 6mm; padding-top: 3mm; border-top: 0.3mm solid var(--line-2); color: var(--ink-3); font-size: 8pt; }
   .pr-foot a { word-break: break-all; color: var(--ink-2); text-decoration: none; }
 }

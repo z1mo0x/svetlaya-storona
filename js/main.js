@@ -68,6 +68,7 @@ const S = {
   build: null, // окно без дорисованных домов
   flat: emptyFlat(), // вся квартира: комнаты и их расчёт
   pendingFlat: null, // комнаты из ссылки ждут загрузки квартала
+  compare: [], // варианты для сравнения (хранятся в браузере)
 };
 
 // ---------- Сцена ----------
@@ -520,6 +521,12 @@ function updateFlat() {
   });
 }
 
+// Квартира относится к текущему окну, только если это окно — одна из её комнат
+function flatOfWindow() {
+  const s = flatStatus();
+  return s && s.state !== 'wait' && S.flat.rooms.some((r) => sameWin(r, S.win)) ? s : null;
+}
+
 function flatStatus() {
   const { rooms, res, size } = S.flat;
   if (!rooms.length) return null;
@@ -922,6 +929,137 @@ function shortName(b) {
   return b.name || b.addr || capital(TYPE_NAMES[b.type] || 'здание');
 }
 
+// ---------- Сравнение вариантов ----------
+// Список живёт в браузере пользователя: это его личная подборка, на сервер ничего не уходит
+const CMP_KEY = 'svet-compare';
+const NORM_SHORT = { pass: 'выполняется', edge: 'на грани', fail: 'не выполняется' };
+
+function loadCompare() {
+  try {
+    const list = JSON.parse(localStorage.getItem(CMP_KEY));
+    return Array.isArray(list) ? list.slice(0, 5) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveCompare(list) {
+  S.compare = list;
+  try {
+    localStorage.setItem(CMP_KEY, JSON.stringify(list));
+  } catch (e) { /* без хранилища список живёт до перезагрузки */ }
+  renderCompareBtn();
+  if ($('#compare').open) renderCompare();
+}
+
+function compareEntry() {
+  const w = S.win, b = S.model.buildings[w.i];
+  const hours = Math.round(S.yr.litHours);
+  const f = flatOfWindow();
+  return {
+    key: `${S.model.lat.toFixed(5)},${S.model.lon.toFixed(5)}|${w.x.toFixed(1)},${w.y.toFixed(1)}|${w.floor}`,
+    title: reportTitle(b),
+    place: S.place?.title || '',
+    floor: w.floor,
+    dir: DIRS_SHORT[sectorOf(w.nx, w.ny)],
+    hours,
+    ratio: S.maxHours ? Math.round((hours / S.maxHours) * 100) : null,
+    lost: Math.round(S.yr.lost * 100),
+    norm: S.norm.edge ? 'edge' : S.norm.pass ? 'pass' : 'fail',
+    flat: f ? { state: f.state, pass: f.pass, marked: f.marked, size: f.size } : null,
+    acc: accuracyLevel(),
+    hash: location.hash,
+  };
+}
+
+async function compareAdd() {
+  if (!S.win) return;
+  if (!(await reportReady(false))) return toast('Расчёт ещё не готов, попробуйте через пару секунд');
+  updateHash();
+  const e = compareEntry();
+  const had = S.compare.some((x) => x.key === e.key);
+  const list = S.compare.filter((x) => x.key !== e.key);
+  if (list.length >= 5) return toast('В сравнении уже пять вариантов — уберите лишний');
+  saveCompare([...list, e]);
+  goal('compare_add', { count: S.compare.length });
+  toast(had ? 'Вариант в сравнении обновлён' : S.compare.length > 1 ? `В сравнении ${S.compare.length} варианта — нажмите «Сравнить»` : 'Добавлено. Выберите другое окно или квартиру и добавьте тоже');
+}
+
+function flatShort(f) {
+  if (!f) return '—';
+  if (f.state === 'open') return `отмечено ${f.marked} из ${f.size} комн.`;
+  return `${{ pass: 'проходит', edge: 'на грани', fail: 'не проходит' }[f.state]} (${f.pass} из ${f.marked})`;
+}
+
+// Строка сравнения — для таблицы на сайте и для PDF
+function compareRow(e) {
+  return {
+    title: e.title,
+    sub: [`${e.floor} этаж`, e.dir, e.place].filter(Boolean).join(' · '),
+    hours: `${fmtH(e.hours)} ч`,
+    ratio: e.ratio != null ? `${e.ratio}% от лучшего` : '',
+    norm: NORM_SHORT[e.norm],
+    flat: flatShort(e.flat),
+    lost: `${e.lost}%`,
+    best: S.compare.length > 1 && e.hours === Math.max(...S.compare.map((x) => x.hours)),
+  };
+}
+
+function renderCompareBtn() {
+  $('#cmpCount').textContent = S.compare.length;
+  $('#cmpOpen').hidden = !S.compare.length;
+}
+
+function renderCompare() {
+  const rows = S.compare.map(compareRow);
+  $('#cmpTable').innerHTML = rows.length ? `<table>
+    <thead><tr><th>Вариант</th><th>Солнце в год</th><th>Норма окна</th><th>Квартира</th><th>Соседи забирают</th><th><span class="sr">Действия</span></th></tr></thead>
+    <tbody>${rows.map((r, k) => `<tr class="${r.best ? 'best' : ''}">
+      <td><b>${esc(r.title)}</b><small>${esc(r.sub)}</small></td>
+      <td class="num">${r.hours}<small>${r.ratio}</small></td>
+      <td><span class="cmp-norm is-${S.compare[k].norm}">${r.norm}</span></td>
+      <td>${r.flat}</td>
+      <td class="num">${r.lost}</td>
+      <td class="cmp-act"><button type="button" data-open="${k}">Открыть</button><button type="button" data-del="${k}" aria-label="Убрать из сравнения">×</button></td>
+    </tr>`).join('')}</tbody></table>` : '<p class="cmp-empty">Пока пусто. Выберите окно и нажмите «В сравнение».</p>';
+}
+
+function openCompare() {
+  renderCompare();
+  $('#compare').showModal();
+  goal('compare_open', { count: S.compare.length });
+}
+
+// ---------- Опрос о цене и подпись риелтора ----------
+const SURVEY_KEY = 'svet-survey';
+const SIGN_KEY = 'svet-sign';
+
+function maybeSurvey() {
+  let done = false;
+  try {
+    done = !!localStorage.getItem(SURVEY_KEY);
+  } catch (e) { /* без хранилища спросим ещё раз — не страшно */ }
+  if (!done) $('#survey').hidden = false;
+}
+
+function answerSurvey(price) {
+  goal('price_survey', { price });
+  try {
+    localStorage.setItem(SURVEY_KEY, price);
+  } catch (e) { /* ответ уже ушёл в Метрику */ }
+  $('#surveyBtns').hidden = true;
+  $('.survey-q').hidden = true;
+  $('#surveyThanks').hidden = false;
+}
+
+function readSign() {
+  try {
+    return (localStorage.getItem(SIGN_KEY) || '').trim();
+  } catch (e) {
+    return ($('#signInput').value || '').trim();
+  }
+}
+
 // ---------- Отчёт: картинка и PDF ----------
 async function makeReport(kind) {
   if (!S.win || S.reporting) return;
@@ -939,6 +1077,7 @@ async function makeReport(kind) {
       goal('report_image', { floor: S.win.floor, verdict: d.level, result: res });
       if (res === 'downloaded') toast('Картинка сохранена в загрузки');
     }
+    maybeSurvey();
   } catch (e) {
     console.error(e);
     toast('Не получилось собрать отчёт');
@@ -948,13 +1087,20 @@ async function makeReport(kind) {
   }
 }
 
-// Ждём годовой расчёт и матрицу дома, но не дольше 20 секунд
-async function reportReady() {
+// Ждём годовой расчёт, точность, «до стройки», комнаты и матрицу дома, но не дольше 20 секунд
+async function reportReady(withMatrix = true) {
   const busy = () => !S.yr || $('#verdict').classList.contains('is-busy');
-  const done = () => !busy() && S.matrix && S.matrix.cells.length >= S.matrix.sides.length * S.matrix.floors.length;
+  const extras = () => (!S.acc?.guessed.length || S.acc.lo != null)
+    && (!S.model.buildings.some((b) => b.added) || S.build)
+    && S.flat.res.every(Boolean);
+  const matrix = () => !withMatrix || (S.matrix && S.matrix.cells.length >= S.matrix.sides.length * S.matrix.floors.length);
   const t0 = performance.now();
-  while (!done() && performance.now() - t0 < 20000) await new Promise((r) => setTimeout(r, 150));
+  while (!(!busy() && extras() && matrix()) && performance.now() - t0 < 20000) await new Promise((r) => setTimeout(r, 150));
   return !busy();
+}
+
+function reportTitle(b) {
+  return b.name && b.addr ? `${b.name}, ${b.addr}` : b.name || b.addr || S.place?.title || 'Окно';
 }
 
 function reportData() {
@@ -964,7 +1110,7 @@ function reportData() {
   const lv = groupLevels(b.group);
   const depth = `${String(w.depth.toFixed(1)).replace('.', ',')} м`;
   const outdoor = { loggia: `лоджия ${depth}`, balcony: `балкон сверху ${depth}` }[w.outdoor];
-  const title = b.name && b.addr ? `${b.name}, ${b.addr}` : b.name || b.addr || S.place?.title || 'Окно';
+  const title = reportTitle(b);
   const hours = Math.round(S.yr.litHours);
   const hoursText = hours.toLocaleString('ru-RU');
   const ratio = S.maxHours ? hours / S.maxHours : null;
@@ -977,7 +1123,7 @@ function reportData() {
     const nl = groupLevels(nb.group);
     return {
       name: shortName(nb),
-      meta: `${nl} ${plural(nl, ['этаж', 'этажа', 'этажей'])} · ${Math.round(Math.hypot(nb.cx - w.x, nb.cy - w.y))} м от окна`,
+      meta: `${nl} ${plural(nl, ['этаж', 'этажа', 'этажей'])}${groupGuessed(t.group) ? ' (угадано)' : ''} · ${Math.round(Math.hypot(nb.cx - w.x, nb.cy - w.y))} м от окна`,
       share: Math.round(t.share * 100),
     };
   });
@@ -994,6 +1140,15 @@ function reportData() {
     : `у окна ${fmtDur(n.longest)} подряд, нужно ${fmtDur(n.need)}`;
   const heat = document.createElement('canvas');
   drawHeat(heat, S.yr, null, [1200, 200]);
+  const fs = flatOfWindow();
+  const flat = fs ? {
+    ...flatText(fs), state: fs.state,
+    rooms: S.flat.rooms.map((r, k) => ({
+      name: `Комната ${k + 1}`, dir: DIRS[sectorOf(r.nx, r.ny)], floor: r.floor,
+      hours: fmtH(S.flat.res[k].hours), norm: normWord(S.flat.res[k].norm),
+    })),
+  } : null;
+  const level2 = accuracyLevel();
   updateHash();
   return {
     title,
@@ -1003,7 +1158,14 @@ function reportData() {
     levelNote: capital(`${note.filter(Boolean).join(', ')}.`),
     verdictText: $('#vText').textContent,
     norm: { pass: n.pass, edge: n.edge, line: normLine, text: $('#normText').textContent },
-    blockers, method, heat,
+    blockers, method, heat, flat,
+    build: buildText(),
+    accuracy: level2 && {
+      label: { high: 'высокая', mid: 'средняя', low: 'низкая' }[level2],
+      text: $('#accText').textContent,
+    },
+    compare: S.compare.length >= 2 ? S.compare.map(compareRow) : null,
+    sign: readSign(),
     matrix: matrixReport(),
     shot: stage.snapshot(1080 / 600, { x: w.x, y: w.y, z: w.z }),
     url: location.href,
@@ -1673,6 +1835,39 @@ function initControls() {
     if (del) return roomRemove(+del.dataset.del);
     const open = e.target.closest('[data-k]');
     if (open) setWindow({ ...S.flat.rooms[+open.dataset.k] }, { fly: true, source: 'room' });
+  });
+  S.compare = loadCompare();
+  renderCompareBtn();
+  $('#cmpAdd').addEventListener('click', compareAdd);
+  $('#cmpOpen').addEventListener('click', openCompare);
+  $('#cmpClose').addEventListener('click', () => $('#compare').close());
+  $('#compare').addEventListener('click', (e) => {
+    if (e.target === $('#compare')) $('#compare').close(); // клик по фону
+    const del = e.target.closest('[data-del]');
+    if (del) saveCompare(S.compare.filter((_, k) => k !== +del.dataset.del));
+    const open = e.target.closest('[data-open]');
+    if (open) {
+      goal('compare_go');
+      location.hash = S.compare[+open.dataset.open].hash;
+      location.reload();
+    }
+  });
+  $('#cmpClear').addEventListener('click', () => saveCompare([]));
+  $('#cmpPdf').addEventListener('click', () => {
+    $('#compare').close();
+    makeReport('pdf');
+  });
+  $('#surveyBtns').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-price]');
+    if (b) answerSurvey(b.dataset.price);
+  });
+  $('#signInput').value = readSign();
+  $('#signInput').addEventListener('change', (e) => {
+    const v = e.target.value.trim();
+    try {
+      localStorage.setItem(SIGN_KEY, v);
+    } catch (err) { /* подпись возьмём из поля */ }
+    if (v) goal('report_sign');
   });
   $('#reportImg').addEventListener('click', () => makeReport('image'));
   $('#reportPdf').addEventListener('click', () => makeReport('pdf'));

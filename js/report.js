@@ -233,8 +233,28 @@ export async function printReport(d) {
       </tbody></table>
     </section>` : '';
 
+  const flat = d.flat ? `<section class="pr-sec">
+      <h2>Вся квартира — ${esc(d.flat.lead.replace(/^Квартира /, '').replace(/\.$/, '').replace(/^./, (c) => c.toLowerCase()))}</h2>
+      <p>${esc(d.flat.rest)}</p>
+      <table class="pr-table"><tbody>${d.flat.rooms.map((r) => `<tr><td>${esc(r.name)}</td><td>окна на ${esc(r.dir)}, ${r.floor} этаж</td><td class="num">${esc(r.hours)} ч</td><td>норма ${esc(r.norm)}</td></tr>`).join('')}</tbody></table>
+    </section>` : '';
+  const build = d.build ? `<section class="pr-sec">
+      <h2>Если построят дорисованные дома</h2>
+      <p><b>${esc(d.build.lead)}</b> ${esc(d.build.rest)}</p>
+    </section>` : '';
+  const accuracy = d.accuracy ? `<section class="pr-sec">
+      <h2>Точность расчёта — ${esc(d.accuracy.label)}</h2>
+      <p>${esc(d.accuracy.text)}</p>
+    </section>` : '';
+  const compare = d.compare ? `<section class="pr-sec pr-compare">
+      <h2>Сравнение вариантов</h2>
+      <table class="pr-table pr-cmp"><thead><tr><th>Вариант</th><th>Солнце в год</th><th>Норма окна</th><th>Квартира</th><th>Соседи забирают</th></tr></thead><tbody>
+      ${d.compare.map((r) => `<tr class="${r.best ? 'best' : ''}"><td><b>${esc(r.title)}</b><br><small>${esc(r.sub)}</small></td><td class="num">${esc(r.hours)}${r.ratio ? `<br><small>${esc(r.ratio)}</small>` : ''}</td><td>${esc(r.norm)}</td><td>${esc(r.flat)}</td><td class="num">${esc(r.lost)}</td></tr>`).join('')}
+      </tbody></table>
+    </section>` : '';
+
   root.innerHTML = `<article class="pr">
-    <header class="pr-head"><span class="pr-brand">Светлая сторона</span><span>Отчёт от ${esc(d.today)}</span></header>
+    <header class="pr-head"><span class="pr-brand">Светлая сторона</span><span>${d.sign ? `Подготовил: ${esc(d.sign)} · ` : ''}Отчёт от ${esc(d.today)}</span></header>
     <h1>${esc(d.title)}</h1>
     <p class="pr-sub">${esc(d.kicker)}</p>
     ${shot}
@@ -242,10 +262,14 @@ export async function printReport(d) {
       <div class="pr-num">${esc(d.hoursText)}<small>ч прямого солнца<br>в ${d.year} году</small></div>
       <div><b class="pr-level is-${d.level}">${esc(d.levelLabel)}</b><p>${esc(d.verdictText)}</p></div>
     </section>
+    <p class="pr-disclaimer">Ориентир по открытым данным, а не официальное заключение. Перед сделкой сверьтесь с расчётом инсоляции в проектной документации дома.</p>
     <section class="pr-sec">
       <h2>Норма инсоляции — ${d.norm.edge ? 'на грани' : d.norm.pass ? 'выполняется' : 'не выполняется'}</h2>
       <p>${esc(d.norm.text)}</p>
     </section>
+    ${flat}
+    ${build}
+    ${accuracy}
     <section class="pr-sec">
       <h2>Солнце в окне по дням года</h2>
       ${heat}
@@ -256,6 +280,7 @@ export async function printReport(d) {
       <h2>Кто забирает солнце</h2>
       ${blockers}
     </section>
+    ${compare}
     ${matrix}
     <section class="pr-sec pr-method">
       <h2>Как считали</h2>

@@ -439,6 +439,29 @@
                   PDF
                 </button>
               </div>
+              <div class="report-btns">
+                <button class="btn btn-ghost btn-sm" id="cmpAdd" type="button">
+                  <svg class="btn-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9M12 19V5M19 19v-7"/></svg>
+                  В сравнение
+                </button>
+                <button class="btn btn-ink btn-sm" id="cmpOpen" type="button" hidden>Сравнить (<span id="cmpCount">0</span>)</button>
+              </div>
+              <div class="survey" id="survey" hidden>
+                <p class="survey-q">Сколько вы заплатили бы за такой отчёт?</p>
+                <div class="survey-btns" id="surveyBtns">
+                  <button type="button" data-price="0">Только бесплатно</button>
+                  <button type="button" data-price="300">до 300 ₽</button>
+                  <button type="button" data-price="500">300–500 ₽</button>
+                  <button type="button" data-price="1000">500–1000 ₽</button>
+                  <button type="button" data-price="more">больше</button>
+                </div>
+                <p class="p-sub survey-thanks" id="surveyThanks" hidden>Спасибо! Это поможет решить, каким сделать подробный отчёт.</p>
+              </div>
+              <details class="report-sign">
+                <summary>Риелторам и приёмщикам: своя подпись в PDF</summary>
+                <input type="text" id="signInput" maxlength="120" placeholder="Например: Анна Смирнова, агентство «Ключ»" aria-label="Подпись в отчёте">
+                <p class="p-sub">Подпись хранится только в этом браузере и печатается в шапке отчёта.</p>
+              </details>
               <button class="btn btn-ghost btn-sm" id="shareBtn" type="button">
                 <svg class="btn-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15 15 9M10 6.5l1.8-1.8a4 4 0 0 1 5.6 5.6L15.6 12M8.4 12l-1.8 1.8a4 4 0 0 0 5.6 5.6l1.8-1.8"/></svg>
                 Скопировать ссылку на окно
@@ -508,6 +531,19 @@
     <div class="loader-pill shell"><div class="core"><span class="loader-sun"><i></i></span><span id="loaderText">Собираем квартал…</span><span class="loader-bar"><i id="loaderBar"></i></span></div></div>
   </div>
   <div class="toast" id="toast" role="status"></div>
+
+  <dialog class="compare" id="compare" aria-labelledby="cmpTitle">
+    <div class="cmp-head">
+      <h3 id="cmpTitle">Сравнение вариантов</h3>
+      <button type="button" class="cmp-close" id="cmpClose" aria-label="Закрыть">×</button>
+    </div>
+    <div class="cmp-table" id="cmpTable"></div>
+    <p class="p-sub cmp-note">Часы прямого солнца в год и норма на расчётный день. Варианты хранятся только в этом браузере. Сравнение попадёт и в PDF-отчёт.</p>
+    <div class="cmp-foot">
+      <button type="button" class="btn btn-ghost btn-sm" id="cmpClear">Очистить</button>
+      <button type="button" class="btn btn-sun btn-sm" id="cmpPdf">PDF со сравнением</button>
+    </div>
+  </dialog>
 
   <script>
     // Блоки прячутся до появления, только если этот скрипт успел запуститься
