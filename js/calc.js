@@ -41,6 +41,11 @@ export class Calc {
     return this.#call({ type: 'max', y, tz });
   }
 
+  // Часы в год и норма при других высотах домов: heights — [[индекс, высота], …]
+  variant(win, y, tz, heights = [], step = 15, dayStep = 4) {
+    return this.#call({ type: 'variant', win: plain(win), y, tz, heights, step, dayStep });
+  }
+
   matrix(base, sides, floors, y, tz, onProgress) {
     return this.#call({ type: 'matrix', base: plain(base), sides, floors, y, tz }, onProgress);
   }
@@ -85,6 +90,7 @@ export class Calc {
       let result;
       if (msg.type === 'year') result = this.local.year(msg.win, msg.y, msg.tz, msg.step, msg.dayStep);
       else if (msg.type === 'max') result = this.local.maxYear(msg.y, msg.tz);
+      else if (msg.type === 'variant') result = this.local.variant(msg.win, msg.y, msg.tz, msg.heights, msg.step, msg.dayStep);
       else if (msg.type === 'floors') result = await this.local.floors(msg.win, msg.y, msg.tz, p.onProgress);
       else if (msg.type === 'matrix') result = await this.local.matrix(msg.base, msg.sides, msg.floors, msg.y, msg.tz, p.onProgress);
       this.pending.delete(id);

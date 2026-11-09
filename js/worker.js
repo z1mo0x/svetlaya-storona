@@ -23,6 +23,9 @@ self.onmessage = async ({ data: m }) => {
       case 'max':
         self.postMessage({ id: m.id, result: an.maxYear(m.y, m.tz) });
         return;
+      case 'variant':
+        self.postMessage({ id: m.id, result: an.variant(m.win, m.y, m.tz, m.heights, m.step, m.dayStep) });
+        return;
       case 'matrix': {
         // новая матрица отменяет предыдущую
         const job = ++matrixJob;

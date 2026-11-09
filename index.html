@@ -311,6 +311,21 @@
             </div>
           </section>
 
+          <section class="p-sec" id="flatSec">
+            <div class="p-row">
+              <span class="p-label">Вся квартира</span>
+              <div class="stepper">
+                <button type="button" data-step="rooms" data-d="-1" aria-label="Меньше комнат">−</button>
+                <output id="roomsOut">2 комн.</output>
+                <button type="button" data-step="rooms" data-d="1" aria-label="Больше комнат">+</button>
+              </div>
+            </div>
+            <ol class="rooms" id="rooms"></ol>
+            <p class="flat-verdict" id="flatVerdict" hidden></p>
+            <button class="btn btn-ghost btn-sm" id="roomAdd" type="button">Добавить это окно как комнату</button>
+            <p class="p-sub flat-note">Норма требует солнца хотя бы в одной жилой комнате, в квартире от четырёх комнат — в двух. Выберите сторону и этаж окна каждой комнаты и добавьте его.</p>
+          </section>
+
           <section class="p-sec" id="levelsSec">
             <div class="p-row">
               <span class="p-label">Этажность <span class="tag" id="levelsTag">по OSM</span></span>
@@ -360,6 +375,7 @@
             <section class="verdict is-busy" id="verdict" aria-live="polite">
               <span class="verdict-badge" id="vBadge">Считаем…</span>
               <p class="verdict-text" id="vText">Считаем солнце на весь год</p>
+              <p class="verdict-build" id="vBuild" hidden></p>
             </section>
 
             <section class="r-hero">
@@ -396,6 +412,12 @@
             <section class="r-sec">
               <div class="r-head"><h4>Кто забирает солнце</h4><span class="micro">за год</span></div>
               <ol class="blockers" id="blockers"></ol>
+            </section>
+
+            <section class="r-sec acc" id="accSec">
+              <div class="r-head"><h4>Насколько точен расчёт</h4><span class="acc-level" id="accLevel"></span></div>
+              <p class="acc-text" id="accText"></p>
+              <p class="p-sub acc-note">Это ориентир по открытым данным, а не официальное заключение. Перед сделкой сверьтесь с расчётом инсоляции в проектной документации дома.</p>
             </section>
 
             <section class="r-sec">

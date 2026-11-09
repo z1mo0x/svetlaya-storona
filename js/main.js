@@ -64,6 +64,10 @@ const S = {
   outdoor: 'none', // что у окна: ничего, лоджия или балкон этажом выше — запоминаем между окнами
   depth: 1.2,
   maxHours: null,
+  acc: null, // точность: разброс часов при других высотах угаданных домов
+  build: null, // окно без дорисованных домов
+  flat: emptyFlat(), // вся квартира: комнаты и их расчёт
+  pendingFlat: null, // комнаты из ссылки ждут загрузки квартала
 };
 
 // ---------- Сцена ----------
@@ -99,6 +103,7 @@ async function applyModel(place, model) {
   S.tz = tz.offset;
   S.tzExact = tz.exact;
   calc.setModel(model);
+  S.flat = emptyFlat();
   S.maxHours = null;
   calc.max(S.date.y, S.tz).then((h) => {
     if (S.model !== model) return;
@@ -135,6 +140,7 @@ async function loadPlace(place, prefer) {
     goal('place_loaded', { buildings: model.buildings.length, source: model.source });
     const w = autoWindow(prefer);
     if (w) setWindow(w, { source: prefer?.exact ? 'link' : 'auto' });
+    applyPendingFlat();
     S.minute = sunnyMinute();
     updateTime();
     flyToWindow(1, 2400);
@@ -201,7 +207,8 @@ function autoWindow(prefer) {
 }
 
 // ---------- Окно ----------
-function setWindow(w, { fly = false, source } = {}) {
+// Окно с этажами и высотой по дому i — для текущего окна и для комнат квартиры
+function windowFor(w) {
   const b = S.model.buildings[w.i];
   const [lo, hi, fh] = floorRange(b);
   const L = Math.hypot(w.nx, w.ny) || 1;
@@ -210,6 +217,12 @@ function setWindow(w, { fly = false, source } = {}) {
     outdoor: w.outdoor ?? S.outdoor, depth: w.depth ?? S.depth,
   };
   win.z = floorZ(win.floor, fh);
+  return win;
+}
+
+function setWindow(w, { fly = false, source } = {}) {
+  const b = S.model.buildings[w.i];
+  const win = windowFor(w);
   S.win = win;
   body.classList.add('has-win');
   stage.setTint('target', b.group);
@@ -330,6 +343,8 @@ function recompute() {
     renderYear();
     renderBlockers();
     renderVerdict();
+    updateAccuracy(token);
+    updateBuild(token);
     drawHeat($('#heat'), S.yr, dayOfYear(y, S.date.m, S.date.d));
     if (S.onYear) {
       const f = S.onYear;
@@ -338,6 +353,257 @@ function recompute() {
     }
   }).catch((e) => console.error(e));
   updateMatrix();
+  updateFlat();
+}
+
+// Точность: насколько ответ зависит от домов, чья высота не указана в OSM и угадана по типу здания.
+// Пересчитываем с угаданными домами на 40% ниже и на 60% выше
+const ACC_LOW = 0.6, ACC_HIGH = 1.6;
+
+function updateAccuracy(token) {
+  const w = S.win, y = S.date.y;
+  const guessed = [];
+  S.model.buildings.forEach((b, i) => {
+    if (b.src === 'guess' && Math.hypot(b.cx - w.x, b.cy - w.y) < 450) guessed.push(i);
+  });
+  S.acc = { guessed, lo: null, hi: null, normFlip: false };
+  renderAccuracy();
+  if (!guessed.length) return;
+  const scaled = (k) => guessed.map((i) => {
+    const b = S.model.buildings[i];
+    return [i, Math.max(b.minH + 1, b.h * k)];
+  });
+  Promise.all([calc.variant(w, y, S.tz), calc.variant(w, y, S.tz, scaled(ACC_LOW)), calc.variant(w, y, S.tz, scaled(ACC_HIGH))])
+    .then(([base, low, high]) => {
+      if (token !== S.calc) return;
+      // варианты считаются грубее основного расчёта — переносим их пропорцией на точные часы
+      const k = base.hours > 1 ? S.yr.litHours / base.hours : 1;
+      S.acc.hi = Math.max(S.yr.litHours, low.hours * k);
+      S.acc.lo = Math.min(S.yr.litHours, high.hours * k);
+      S.acc.normFlip = low.norm.pass !== high.norm.pass;
+      renderAccuracy();
+    })
+    .catch((e) => console.error(e));
+}
+
+function accuracyLevel() {
+  const a = S.acc;
+  if (!a || !S.yr) return null;
+  if (!a.guessed.length) return 'high';
+  if (a.lo == null) return null;
+  const spread = a.hi - a.lo, H = S.yr.litHours;
+  if (a.normFlip) return 'low';
+  return spread <= Math.max(40, H * 0.1) ? 'high' : spread <= Math.max(120, H * 0.3) ? 'mid' : 'low';
+}
+
+function renderAccuracy() {
+  const a = S.acc;
+  if (!a || !S.yr || !S.win) return;
+  const level = accuracyLevel();
+  const tag = $('#accLevel');
+  tag.textContent = level ? { high: 'высокая', mid: 'средняя', low: 'низкая' }[level] : 'считаем…';
+  tag.className = `acc-level${level ? ` is-${level}` : ''}`;
+  const top = (S.yr.top || []).filter((t) => t.share >= 0.01);
+  const guessTop = top.filter((t) => groupGuessed(t.group)).length;
+  let t;
+  if (!a.guessed.length) t = 'Высоты всех домов вокруг окна есть в OpenStreetMap.';
+  else if (guessTop) t = `Высота ${guessTop} из ${top.length} ${plural(top.length, ['дома', 'домов', 'домов'])}, которые забирают солнце, не указана в OpenStreetMap и угадана по типу здания.`;
+  else t = `У ${a.guessed.length} ${plural(a.guessed.length, ['дома', 'домов', 'домов'])} поблизости высота не указана в OpenStreetMap и угадана по типу здания.`;
+  if (a.lo != null) {
+    const fmt = (v) => Math.round(v).toLocaleString('ru-RU');
+    t += Math.round(a.hi) - Math.round(a.lo) < 10
+      ? ' Даже если угаданные дома на 40% ниже или на 60% выше, ответ почти не меняется.'
+      : ` Если угаданные дома на 40% ниже или на 60% выше — от <b>${fmt(a.lo)}</b> до <b>${fmt(a.hi)} ч</b> в год.`;
+    if (a.normFlip) t += ' От этого зависит и вывод по норме.';
+  }
+  if (S.model.buildings[S.win.i]?.src === 'guess') t += ' Этажность вашего дома тоже угадана — проверьте номер этажа.';
+  if (guessTop || S.model.buildings[S.win.i]?.src === 'guess') t += ' Знаете этажность? Кликните по крыше и укажите её — расчёт уточнится.';
+  $('#accText').innerHTML = t;
+}
+
+function groupGuessed(g) {
+  return (stage.groups.get(g) || []).some((i) => S.model.buildings[i].src === 'guess');
+}
+
+const fmtH = (v) => Math.round(v).toLocaleString('ru-RU');
+const normWord = (n) => (n.edge ? 'на грани' : n.pass ? 'выполняется' : 'не выполняется');
+
+// «До стройки»: если пользователь дорисовал дома, считаем окно ещё и без них
+function updateBuild(token) {
+  const added = [];
+  S.model.buildings.forEach((b, i) => {
+    if (b.added) added.push([i, 0]);
+  });
+  S.build = null;
+  renderBuild();
+  if (!added.length) return;
+  calc.variant(S.win, S.date.y, S.tz, added, 10, 1)
+    .then((r) => {
+      if (token !== S.calc) return;
+      S.build = { hours: r.hours, norm: r.norm, count: added.length };
+      renderBuild();
+    })
+    .catch((e) => console.error(e));
+}
+
+function buildText() {
+  if (!S.build || !S.yr || !S.norm) return null;
+  const before = S.build.hours, after = S.yr.litHours;
+  const lost = before > 0 ? Math.round((1 - after / before) * 100) : 0;
+  const what = S.build.count > 1 ? 'Дорисованные дома' : 'Дорисованный дом';
+  return {
+    lead: `${what} ${lost >= 1 ? `${S.build.count > 1 ? 'заберут' : 'заберёт'} ${lost}% солнца` : 'почти не мешает этому окну'}.`,
+    rest: `Сейчас ${fmtH(before)} ч в год, норма ${normWord(S.build.norm)}. После стройки ${fmtH(after)} ч, норма ${normWord(S.norm)}.`,
+  };
+}
+
+function renderBuild() {
+  const el = $('#vBuild');
+  const t = buildText();
+  el.hidden = !t;
+  if (t) el.innerHTML = `<b>${t.lead}</b> ${t.rest}`;
+}
+
+// ---------- Вся квартира ----------
+// СанПиН 1.2.3685-21: в 1–3-комнатной квартире солнце по норме нужно хотя бы в одной жилой комнате, в 4+ — в двух
+let flatJob = 0;
+const flatNeed = (size) => (size >= 4 ? 2 : 1);
+const sameWin = (a, b) => a && b && a.i === b.i && a.floor === b.floor && Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5;
+
+function emptyFlat() {
+  return { size: 2, rooms: [], res: [], key: null };
+}
+
+function roomAdd() {
+  if (!S.win) return;
+  const rooms = S.flat.rooms;
+  if (rooms.some((r) => sameWin(r, S.win))) return toast('Это окно уже добавлено');
+  if (rooms.length >= 6) return toast('Не больше шести окон');
+  const { i, x, y, nx, ny, floor, outdoor, depth } = S.win;
+  rooms.push({ i, x, y, nx, ny, floor, outdoor, depth });
+  if (rooms.length > S.flat.size) S.flat.size = Math.min(6, rooms.length);
+  goal('room_add', { rooms: rooms.length });
+  updateFlat();
+  updateHash();
+}
+
+function roomRemove(k) {
+  S.flat.rooms.splice(k, 1);
+  updateFlat();
+  updateHash();
+}
+
+function setRooms(n) {
+  S.flat.size = clamp(n, 1, 6);
+  renderFlat();
+  updateHash();
+}
+
+// Каждая комната считается так же точно, как основное окно; пересчёт — только если что-то изменилось
+function updateFlat() {
+  const rooms = S.flat.rooms;
+  const heights = S.model.buildings.reduce((s, b) => s + b.h, 0);
+  const key = `${rooms.map((r) => `${r.i}:${r.x}:${r.y}:${r.floor}:${r.outdoor}:${r.depth}`).join('|')}#${S.date.y}#${heights}#${S.model.buildings.length}`;
+  if (key === S.flat.key) return renderFlat();
+  S.flat.key = key;
+  S.flat.res = rooms.map(() => null);
+  renderFlat();
+  const job = ++flatJob;
+  rooms.forEach((r, k) => {
+    calc.variant(windowFor(r), S.date.y, S.tz, [], 10, 1)
+      .then((res) => {
+        if (job !== flatJob) return;
+        S.flat.res[k] = res;
+        renderFlat();
+      })
+      .catch((e) => console.error(e));
+  });
+}
+
+function flatStatus() {
+  const { rooms, res, size } = S.flat;
+  if (!rooms.length) return null;
+  if (res.some((x) => !x)) return { state: 'wait' };
+  const need = flatNeed(size);
+  const pass = res.filter((x) => x.norm.pass).length;
+  const sure = res.filter((x) => x.norm.pass && !x.norm.edge).length;
+  const s = { pass, need, marked: rooms.length, size };
+  if (pass >= need) return { ...s, state: sure >= need ? 'pass' : 'edge' };
+  return { ...s, state: rooms.length < size ? 'open' : 'fail' };
+}
+
+function flatText(s) {
+  if (s.state === 'wait') return { lead: 'Считаем комнаты…', rest: '' };
+  const need = s.need === 2 ? 'в двух' : 'хотя бы в одной';
+  const rest = `Солнце по норме в ${s.pass} из ${s.marked} ${plural(s.marked, ['отмеченной комнаты', 'отмеченных комнат', 'отмеченных комнат'])}, нужно ${need}.`;
+  const lead = {
+    pass: 'Квартира проходит норму.',
+    edge: 'Квартира на грани нормы.',
+    fail: 'Квартира не проходит норму.',
+    open: 'Пока не хватает.',
+  }[s.state];
+  const more = s.size - s.marked;
+  const tail = s.state === 'open' ? ` Отметьте остальные комнаты (ещё ${more}).` : s.state === 'edge' ? ' Хватает только с окнами «на грани».' : '';
+  return { lead, rest: rest + tail };
+}
+
+function renderFlat() {
+  const f = S.flat;
+  $('#roomsOut').textContent = `${f.size} комн.`;
+  $('#rooms').innerHTML = f.rooms.map((r, k) => {
+    const res = f.res[k];
+    const st = res ? (res.norm.edge ? 'edge' : res.norm.pass ? 'pass' : 'fail') : 'wait';
+    const word = { pass: 'норма', edge: 'на грани', fail: 'нет нормы', wait: 'считаем…' }[st];
+    return `<li class="room is-${st}${sameWin(r, S.win) ? ' cur' : ''}">
+      <button type="button" class="room-open" data-k="${k}">
+        <span class="room-name">Комната ${k + 1}</span>
+        <span class="room-meta">${DIRS_SHORT[sectorOf(r.nx, r.ny)]} · ${r.floor} этаж${res ? ` · ${fmtH(res.hours)} ч` : ''}</span>
+        <span class="room-norm">${word}</span>
+      </button>
+      <button type="button" class="room-del" data-del="${k}" aria-label="Убрать комнату ${k + 1}">×</button>
+    </li>`;
+  }).join('');
+  const s = flatStatus();
+  const v = $('#flatVerdict');
+  v.hidden = !s;
+  if (s) {
+    const t = flatText(s);
+    v.className = `flat-verdict is-${s.state}`;
+    v.innerHTML = `<b>${t.lead}</b> ${t.rest}`;
+  }
+  const added = f.rooms.some((r) => sameWin(r, S.win));
+  $('#roomAdd').disabled = added || f.rooms.length >= 6;
+  $('#roomAdd').textContent = added ? 'Это окно уже в квартире' : f.rooms.length ? 'Добавить это окно' : 'Добавить это окно как комнату';
+}
+
+// Комнаты в ссылке: «комнат;x:y:nx:ny:этаж:лоджия:глубина,…»
+function flatToHash() {
+  const f = S.flat;
+  if (!f.rooms.length) return '';
+  return `${f.size};${f.rooms.map((r) => `${[r.x, r.y, r.nx, r.ny].map((v) => v.toFixed(2)).join(':')}:${r.floor}:${Math.max(0, OUTDOOR_CODES.indexOf(r.outdoor))}:${r.depth}`).join(',')}`;
+}
+
+function flatFromHash(str) {
+  if (!str) return null;
+  const [size, list] = str.split(';');
+  const specs = (list || '').split(',').map((s) => s.split(':').map(Number)).filter((a) => a.length === 7 && a.every(isFinite))
+    .map(([x, y, nx, ny, floor, o, depth]) => ({ x, y, nx, ny, floor, outdoor: OUTDOOR_CODES[o] || 'none', depth: clamp(depth, 0.6, 2.4) }));
+  return specs.length ? { size: clamp(Math.round(+size) || 2, 1, 6), specs } : null;
+}
+
+// Комнаты из ссылки привязываем к домам уже загруженного квартала
+function applyPendingFlat() {
+  const p = S.pendingFlat;
+  S.pendingFlat = null;
+  if (!p) return;
+  S.flat = emptyFlat();
+  S.flat.size = p.size;
+  for (const sp of p.specs) {
+    const i = buildingAt(sp.x - sp.nx * 2, sp.y - sp.ny * 2, 15);
+    if (i >= 0) S.flat.rooms.push({ i, ...sp });
+  }
+  updateFlat();
+  updateHash();
 }
 
 // Главный ответ: насколько солнечно и сколько забирают соседи
@@ -485,6 +751,7 @@ function renderWindowPanel() {
   $('#floorSec').style.display = w ? '' : 'none';
   $('#levelsSec').style.display = w ? '' : 'none';
   $('#outdoorSec').style.display = w ? '' : 'none';
+  $('#flatSec').style.display = w ? '' : 'none';
   if (!w) {
     $('#winTitle').textContent = 'Кликните по стене дома';
     $('#winSub').textContent = 'там, где находится ваше окно';
@@ -587,7 +854,7 @@ function renderBlockers() {
     const lv = groupLevels(b.group);
     return `<li data-group="${t.group}" data-i="${t.i}">
       <span class="b-name">${esc(shortName(b))}</span>
-      <span class="b-meta">${lv} ${plural(lv, ['этаж', 'этажа', 'этажей'])} · ${dist} м от окна</span>
+      <span class="b-meta">${lv} ${plural(lv, ['этаж', 'этажа', 'этажей'])}${groupGuessed(t.group) ? ' (угадано)' : ''} · ${dist} м от окна</span>
       <span class="b-share">${Math.round(t.share * 100)}%</span>
       <span class="b-bar"><i style="--v:${(t.share / max).toFixed(3)}"></i></span>
     </li>`;
@@ -990,6 +1257,7 @@ function removeBuilding(i) {
   hideFocus();
   if (S.win?.i === i) clearWindow();
   else if (S.win && S.win.i > i) S.win.i--;
+  S.flat.rooms = S.flat.rooms.filter((r) => r.i !== i).map((r) => (r.i > i ? { ...r, i: r.i - 1 } : r));
   rebuildWorld();
   goal('draw_remove');
 }
@@ -1226,6 +1494,8 @@ function updateHash() {
   p.set('n', S.place?.title || '');
   const added = addedToHash();
   if (added) p.set('a', added);
+  const flat = flatToHash();
+  if (flat) p.set('f', flat);
   history.replaceState(null, '', `#${p}`);
 }
 
@@ -1242,6 +1512,7 @@ async function openFromHash() {
     S.depth = clamp(w[6], 0.6, 2.4);
   }
   enterApp();
+  S.pendingFlat = flatFromHash(p.get('f'));
   const added = addedFromHash(p.get('a'));
   const isDemo = Math.abs(lat - PLACES.demo.lat) < 1e-4 && Math.abs(lon - PLACES.demo.lon) < 1e-4;
   if (isDemo) {
@@ -1250,6 +1521,7 @@ async function openFromHash() {
       const win = autoWindow(prefer);
       if (win) setWindow(win, { source: 'link' });
     }
+    applyPendingFlat();
     flyToWindow();
   } else {
     const ru = lat > 41 && lat < 82 && lon > 19;
@@ -1387,6 +1659,7 @@ function initControls() {
     if (b.dataset.step === 'levels' && S.win) setBuildingLevels(S.win.i, S.model.buildings[S.win.i].levels + d);
     if (b.dataset.step === 'focus' && S.focus != null) setBuildingLevels(S.focus, S.model.buildings[S.focus].levels + d);
     if (b.dataset.step === 'depth') setOutdoor(S.outdoor, S.depth + d * 0.1);
+    if (b.dataset.step === 'rooms') setRooms(S.flat.size + d);
   }));
   $('#sides').addEventListener('click', (e) => {
     const b = e.target.closest('[data-sector]');
@@ -1394,6 +1667,13 @@ function initControls() {
   });
   $$('#outdoorSeg button').forEach((b) => b.addEventListener('click', () => setOutdoor(b.dataset.outdoor)));
 
+  $('#roomAdd').addEventListener('click', roomAdd);
+  $('#rooms').addEventListener('click', (e) => {
+    const del = e.target.closest('[data-del]');
+    if (del) return roomRemove(+del.dataset.del);
+    const open = e.target.closest('[data-k]');
+    if (open) setWindow({ ...S.flat.rooms[+open.dataset.k] }, { fly: true, source: 'room' });
+  });
   $('#reportImg').addEventListener('click', () => makeReport('image'));
   $('#reportPdf').addEventListener('click', () => makeReport('pdf'));
   $('#focusClose').addEventListener('click', hideFocus);

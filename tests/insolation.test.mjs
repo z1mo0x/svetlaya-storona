@@ -98,6 +98,17 @@ test('прерывистая инсоляция: +30 мин в сумме и о�
   assert.equal(judgeNorm([[400, 455], [500, 555], [600, 650]], 0, 1440, 120).pass, false, 'все отрезки короче часа');
 });
 
+test('расчёт с другими высотами: без башни солнца больше, высоты потом восстанавливаются', () => {
+  const an = new Analyzer(model(55.75, [home, tower]));
+  const base = an.variant(win, 2026, 3, []);
+  const noTower = an.variant(win, 2026, 3, [[1, 0]]);
+  const lower = an.variant(win, 2026, 3, [[1, 40]]);
+  assert.ok(noTower.hours > base.hours, `${noTower.hours} > ${base.hours}`);
+  assert.ok(lower.hours >= base.hours && lower.hours <= noTower.hours);
+  assert.equal(an.items[1].h, 200, 'высота башни вернулась');
+  assert.equal(an.variant(win, 2026, 3, []).hours, base.hours);
+});
+
 test('этажи по высоте этажа самого дома', () => {
   assert.deepEqual({ ...floorsOf({ h: 213, levels: 52, minH: 0 }), fh: undefined }, { lo: 1, hi: 52, fh: undefined });
   assert.ok(Math.abs(floorsOf({ h: 213, levels: 52, minH: 0 }).fh - 4.096) < 0.01);

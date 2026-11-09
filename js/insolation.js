@@ -190,6 +190,18 @@ export class Analyzer {
     };
   }
 
+  // Расчёт с другими высотами домов: heights — [[индекс, высота], …], высота 0 убирает дом.
+  // Для оценки точности (угаданные высоты ниже и выше) и сценария «до стройки» (без дорисованных домов)
+  variant(win, y, tz, heights, step = 15, dayStep = 4) {
+    const saved = heights.map(([i]) => this.items[i].h);
+    for (const [i, h] of heights) this.items[i].h = h;
+    try {
+      return { hours: this.year(win, y, tz, step, dayStep).litHours, norm: this.norm(win, y, tz) };
+    } finally {
+      heights.forEach(([i], k) => { this.items[i].h = saved[k]; });
+    }
+  }
+
   // Ячейка матрицы дома: часы прямого солнца в год (каждые 4 дня, шаг 15 мин) и норма
   cell(win, y, tz) {
     const n = this.norm(win, y, tz);
