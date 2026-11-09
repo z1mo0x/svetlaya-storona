@@ -4,7 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Светлая сторона — сколько солнца будет в вашей квартире</title>
-  <meta name="description" content="3D-макет квартала по любому адресу: кликните по стене, где окно, и посмотрите, сколько прямого солнца оно получает каждый день года. Проверка по нормам инсоляции.">
+  <meta name="description" content="3D-макет квартала по любому адресу: сколько прямого солнца получает окно каждый день года, проходит ли квартира норму инсоляции, сравнение вариантов и PDF-отчёт. Бесплатно.">
+  <link rel="canonical" href="https://svetlaya-storona.vercel.app/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Светлая сторона">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:url" content="https://svetlaya-storona.vercel.app/">
+  <meta property="og:title" content="Сколько солнца будет в вашей квартире">
+  <meta property="og:description" content="3D-макет квартала по адресу: часы прямого солнца в окне за год, проверка нормы инсоляции, сравнение квартир и PDF-отчёт.">
+  <meta property="og:image" content="https://svetlaya-storona.vercel.app/img/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#f3ede3">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='14' fill='%23ee9a3a'/%3E%3Cpath d='M4 46h56' stroke='%231d1712' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -216,15 +227,23 @@
         <div class="faq-list" data-reveal>
           <details class="qa">
             <summary>Насколько точен расчёт?<i aria-hidden="true"></i></summary>
-            <div class="qa-body"><p>Положение солнца считаем с точностью около десятой доли градуса. Главный источник ошибок — данные о домах: контуры в OpenStreetMap обычно точные, а этажность бывает не указана или устарела. Такие дома на макете светлее остальных — кликните по крыше и поправьте этажность.</p></div>
+            <div class="qa-body"><p>Положение солнца считаем с точностью около десятой доли градуса. Главный источник ошибок — данные о домах: контуры в OpenStreetMap обычно точные, а этажность бывает не указана или устарела. Для каждого окна сайт пересчитывает солнце с такими домами ниже и выше и показывает разброс в блоке «Насколько точен расчёт». Знаете этажность — кликните по крыше и поправьте её.</p></div>
           </details>
           <details class="qa">
             <summary>Учитываются ли деревья, балконы и облака?<i aria-hidden="true"></i></summary>
-            <div class="qa-body"><p>Нет. Как и в нормативной методике, деревья не загораживают солнце, а погода не учитывается — считаем геометрически возможное прямое солнце. Балконы и козырьки над окном тоже не моделируются.</p></div>
+            <div class="qa-body"><p>Деревья и облака — нет: как и в нормативной методике, деревья не загораживают солнце, а погода не учитывается. Лоджию или балкон этажом выше можно включить в настройках окна и задать глубину — они срежут часть солнца.</p></div>
           </details>
           <details class="qa">
             <summary>Дом напротив ещё строится — его видно?<i aria-hidden="true"></i></summary>
-            <div class="qa-body"><p>Только если его уже нанесли в OpenStreetMap. Многие стройки там есть вместе с проектной этажностью — на макете они выглядят как обычные дома. Если стройки нет, смотрите проектную документацию соседнего участка.</p></div>
+            <div class="qa-body"><p>Если его уже нанесли в OpenStreetMap — да. Если нет, нажмите «Достроить дом», обведите контур на земле и задайте этажность из проекта. Сайт покажет, сколько солнца стройка заберёт, и сравнит норму до и после.</p></div>
+          </details>
+          <details class="qa">
+            <summary>Можно проверить всю квартиру и сравнить варианты?<i aria-hidden="true"></i></summary>
+            <div class="qa-body"><p>Да. Отметьте окно каждой жилой комнаты — сайт скажет, проходит ли квартира норму: хотя бы одна комната в 1–3-комнатной, две — в 4-комнатной и больше. Кнопка «В сравнение» собирает до пяти вариантов в одну таблицу, она же попадает в PDF-отчёт.</p></div>
+          </details>
+          <details class="qa">
+            <summary>Я риелтор или приёмщик — можно отдавать отчёт клиентам?<i aria-hidden="true"></i></summary>
+            <div class="qa-body"><p>Да. В блоке отчёта впишите свою подпись — она появится в шапке PDF. Подпись хранится только в вашем браузере.</p></div>
           </details>
           <details class="qa">
             <summary>Это официальное заключение?<i aria-hidden="true"></i></summary>
@@ -232,7 +251,7 @@
           </details>
           <details class="qa">
             <summary>Куда уходят мои данные?<i aria-hidden="true"></i></summary>
-            <div class="qa-body"><p>Адрес отправляется в геокодер Photon, чтобы найти координаты, а контуры домов загружаются из открытого API OpenStreetMap. Весь расчёт идёт в вашем браузере — на наш сервер ничего не отправляется, потому что его нет.</p></div>
+            <div class="qa-body"><p>Адрес отправляется в геокодер Photon, чтобы найти координаты. Дома для Москвы и Петербурга загружаются из наших файлов на GitHub Pages, для других городов — из открытого API OpenStreetMap. Весь расчёт идёт в вашем браузере — на наш сервер ничего не отправляется, потому что его нет. <a href="privacy.html">Подробнее</a></p></div>
           </details>
         </div>
       </div>
@@ -246,7 +265,7 @@
       </div>
       <footer class="foot wrap">
         <span class="logo logo-sm"><span class="logo-mark" aria-hidden="true"><i></i></span><span class="logo-word">Светлая сторона</span></span>
-        <p>Прототип. Данные о зданиях © участники <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (ODbL). Поиск адресов — <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a>. 3D — three.js. Расчёт ориентировочный и не является заключением по ГОСТ Р 57795-2017. <a href="privacy.html">Конфиденциальность</a></p>
+        <p>Прототип. Данные о зданиях © участники <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (ODbL). Поиск адресов — <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a>. 3D — three.js. Расчёт ориентировочный и не является заключением по ГОСТ Р 57795-2017. <a href="insolyaciya-kvartiry.html">Как проверить инсоляцию квартиры</a> · <a href="privacy.html">Конфиденциальность</a></p>
       </footer>
     </section>
     </div>
@@ -444,7 +463,7 @@
                   <svg class="btn-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9M12 19V5M19 19v-7"/></svg>
                   В сравнение
                 </button>
-                <button class="btn btn-ink btn-sm" id="cmpOpen" type="button" hidden>Сравнить (<span id="cmpCount">0</span>)</button>
+                <button class="btn btn-ink btn-sm" id="cmpOpen" type="button" hidden><span>Сравнить (<span id="cmpCount">0</span>)</span></button>
               </div>
               <div class="survey" id="survey" hidden>
                 <p class="survey-q">Сколько вы заплатили бы за такой отчёт?</p>

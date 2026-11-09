@@ -10,12 +10,18 @@
 - `js/osm.js` — разбор в два слоя: `elementsToFeatures()` (элементы OSM API → признаки в долготе/широте) и `featuresToModel()` (признаки → модель в метрах: `buildings`, `roads`, `areas`, `trees`); `fetchOSM()` — 4 запроса-квадранта
 - `js/osm-rules.js`, `js/tile-format.js` — общие с репозиторием тайлов: какие теги брать, формат тайла (сетка 0,012° × 0,007°), отсечение по тайлу, чтение GeoJSON из osmium
 - `js/sun.js` — положение солнца, часовые пояса РФ по региону
-- `js/insolation.js` — `Analyzer`: луч от окна к солнцу против призм домов, день/год/норма/этажи, лоджия (`OUTDOOR`, `shadedByOutdoor`), `floorsOf` (высота этажа = высота / этажность)
+- `js/insolation.js` — `Analyzer`: луч от окна к солнцу против призм домов, день/год/норма/этажи, лоджия (`OUTDOOR`, `shadedByOutdoor`), `floorsOf` (высота этажа = высота / этажность), `variant()` — расчёт при других высотах домов (точность, «до стройки», комнаты), `judgeNorm()` — правило нормы
 - `js/worker.js` + `js/calc.js` — год и этажи считаются в Web Worker; если воркер недоступен, `Calc` считает в основном потоке
 - `js/scene.js` — `Stage`: three.js, кадр рисуется только после `invalidate()`; уровни качества из `js/quality.js`
 - `js/report.js` — картинка 1080 px для мессенджеров (canvas) и PDF через `window.print` с отдельной вёрсткой `@media print`; снимок 3D — `Stage.snapshot()`
-- `js/main.js` — интерфейс, состояние `S`, связка всего. Матрица дома — `updateMatrix()`, «Достроить дом» — `startDraw()`…`addBuildings()` (дома пользователя с `added: true` хранятся в ссылке, параметр `a`), отчёт — `makeReport()`
-- `js/analytics.js`, `js/config.js` — Яндекс Метрика (выключена, пока `metrikaId: null`), ссылка на Telegram
+- `js/main.js` — интерфейс, состояние `S`, связка всего:
+  - матрица дома — `updateMatrix()`; «Достроить дом» — `startDraw()`…`addBuildings()` (дома с `added: true` в ссылке, параметр `a`), «до и после стройки» — `updateBuild()`
+  - точность — `updateAccuracy()`: угаданные высоты (`src: 'guess'`) ×0,6 и ×1,6, диапазон часов и уровень
+  - вся квартира — `roomAdd()`, `updateFlat()`, `flatStatus()`; комнаты в ссылке, параметр `f`; вердикт квартиры идёт в сравнение и PDF, только если текущее окно — её комната (`flatOfWindow()`)
+  - сравнение — `compareAdd()`, `<dialog id="compare">`, список в localStorage `svet-compare`; опрос о цене (`svet-survey`) и подпись риелтора (`svet-sign`) — тоже только в браузере
+  - отчёт — `makeReport()`, данные — `reportData()`
+- `js/analytics.js`, `js/config.js` — Яндекс Метрика (выключена, пока `metrikaId: null`), адрес тайлов; список целей — комментарий в `analytics.js`
+- `insolyaciya-kvartiry.html` — статья под поиск «инсоляция квартиры»; `robots.txt`, `sitemap.xml`, `img/og.jpg` — превью ссылки (снимок героя лендинга 1200×630)
 - `data/demo.json` — демо-квартал у Москва-Сити (собирается `tools/build-demo.mjs`)
 
 Координаты модели: метры, x — восток, y — север. В three.js: y — вверх, север = −z (`V()` в `scene.js`).

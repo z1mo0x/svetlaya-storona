@@ -22,7 +22,8 @@ export function initAnalytics() {
 }
 
 // Цель: search, place_loaded, place_error, window_set, floor_change, outdoor_change, report_image, report_pdf, share_link,
-// open_app, quick_place, draw_start, draw_done, draw_remove
+// open_app, quick_place, draw_start, draw_done, draw_remove, room_add, compare_add, compare_open, compare_go,
+// price_survey (ответ: 0 / 300 / 500 / 1000 / more), report_sign (риелтор вписал подпись — сигнал B2B-спроса)
 export function goal(name, params) {
   if (debug) console.info('[цель]', name, params || '');
   if (id && window.ym) window.ym(id, 'reachGoal', name, params);
